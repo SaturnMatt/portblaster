@@ -517,6 +517,30 @@ static void probe_idle_timeout(void) {
     if (!ok) g_fail++;
 }
 
+static void probe_slow_parallel(void) {
+    SOCKET slow = connect_target_with_timeout(8000);
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok;
+    if (slow == INVALID_SOCKET) {
+        out("FAIL slow_parallel connect\r\n");
+        g_fail++;
+        return;
+    }
+    make_req("GET", "/");
+    code = request_raw(g_req, &ms, &bytes);
+    closesocket(slow);
+    ok = code == 200 && ms < 3000;
+    out(ok ? "PASS slow_parallel -> " : "FAIL slow_parallel -> ");
+    print_u32((DWORD)code);
+    out(" ");
+    print_u32(ms);
+    out("ms\r\n");
+    report_row("slow_parallel", 200, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void load(const char *path, DWORD count) {
     DWORD i;
     DWORD total = 0;
@@ -561,6 +585,7 @@ int main(int argc, char **argv) {
     DWORD dir_expect = 0;
     DWORD range_expect = 0;
     DWORD bind_expect = 2;
+    DWORD threads_check = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -621,6 +646,9 @@ int main(int argc, char **argv) {
     }
     if (argc > 12) {
         bind_expect = parse_u32(argv[12]);
+    }
+    if (argc > 13) {
+        threads_check = parse_u32(argv[13]);
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
@@ -684,6 +712,9 @@ int main(int argc, char **argv) {
     }
     if (argc > 8) {
         probe_access_log(argv[8], (int)access_log_expect);
+    }
+    if (threads_check) {
+        probe_slow_parallel();
     }
     load("/", 100);
 

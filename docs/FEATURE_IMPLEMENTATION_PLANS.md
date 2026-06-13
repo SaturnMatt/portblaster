@@ -138,6 +138,8 @@ Acceptance:
 
 ## 6. Thread-Per-Connection
 
+Status: Complete
+
 Build fit: `pb100`
 
 Goal:
@@ -159,6 +161,7 @@ Acceptance:
 - Concurrent requests complete without corrupting logs, paths, or responses.
 - `pbjelly` load run remains green.
 - A slow client does not block a normal request.
+- `pbjelly` validates this by holding one idle connection while a normal request completes quickly.
 
 ## 7. Worker Pool
 

@@ -53,7 +53,8 @@ function Get-FeatureDefines {
         elseif ($name -eq 'BIND_ALL') { $defs += '/DPB_FEAT_BIND_ALL=1' }
         elseif ($name -eq 'IPV6') { $defs += '/DPB_FEAT_IPV6=1' }
         elseif ($name -eq 'TRAY') { $defs += '/DPB_FEAT_TRAY=1' }
-        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, COPY_URL, BROWSE, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6, TRAY." }
+        elseif ($name -eq 'THREADS') { $defs += '/DPB_FEAT_THREADS=1' }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, COPY_URL, BROWSE, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6, TRAY, THREADS." }
     }
     return ($defs -join ' ')
 }
@@ -81,10 +82,10 @@ Push-Location $projectRoot
 try {
     Invoke-ServerBuild 'pb20' 20 @() $false $false
     Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL', 'BROWSE') $false $false
-    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6', 'TRAY') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6', 'TRAY', 'THREADS') $false $false
     Invoke-ServerBuild 'pbj20' 20 @() $true $true
     Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL', 'BROWSE') $true $true
-    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6', 'TRAY') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6', 'TRAY', 'THREADS') $true $true
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }

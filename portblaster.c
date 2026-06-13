@@ -129,6 +129,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_THREADS
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_THREADS 1
+#else
+#define PB_FEAT_THREADS 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -178,6 +186,9 @@ static int g_tray_added = 0;
 
 static SOCKET g_listener = INVALID_SOCKET;
 static HANDLE g_thread = 0;
+#if PB_FEAT_THREADS
+static CRITICAL_SECTION g_note_lock;
+#endif
 static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
 static volatile LONG g_last_status = 0;
@@ -205,7 +216,6 @@ static int g_config_error = 0;
 #endif
 #if PB_FEAT_DIR_LIST
 static int g_dir_list = 0;
-static char g_dir_body[HEADER_MAX];
 #endif
 #if PB_FEAT_BIND_ALL
 static int g_bind_all = 0;
@@ -215,17 +225,24 @@ static int g_ipv6 = 0;
 #endif
 static unsigned short g_port = 8083;
 
-static char g_request[REQ_MAX];
-static char g_path[PATH_MAX_LOCAL];
-static char g_header[HEADER_MAX];
+typedef struct PB_CLIENT {
+    SOCKET client;
+    char request[REQ_MAX];
+    char path[PATH_MAX_LOCAL];
+    char header[HEADER_MAX];
+    char last_path[128];
 #if PB_FEAT_STATUS_ENDPOINT
-static char g_status_body[HEADER_MAX];
+    char status_body[HEADER_MAX];
+#endif
+#if PB_FEAT_DIR_LIST
+    char dir_body[HEADER_MAX];
 #endif
 #if PB_FEAT_STREAM
-static unsigned char g_chunk[STREAM_CHUNK];
+    unsigned char chunk[STREAM_CHUNK];
 #else
-static unsigned char g_file[FILE_MAX];
+    unsigned char file[FILE_MAX];
 #endif
+} PB_CLIENT;
 
 static void refresh_activity(void);
 static int starts_with(const char *s, const char *prefix);
@@ -409,19 +426,20 @@ static void append_u32(char *dst, int *pos, DWORD value) {
 }
 
 #if PB_FEAT_ACCESS_LOG
-static void append_log_file(int status, DWORD bytes) {
+static void append_log_file(int status, DWORD bytes, const char *path) {
     HANDLE f;
     DWORD wrote;
     int p = 0;
-    append_u32(g_header, &p, (DWORD)status);
-    append(g_header, &p, " ");
-    append(g_header, &p, g_last_path);
-    append(g_header, &p, " ");
-    append_u32(g_header, &p, bytes);
-    append(g_header, &p, " B\r\n");
+    char line[HEADER_MAX];
+    append_u32(line, &p, (DWORD)status);
+    append(line, &p, " ");
+    append(line, &p, path);
+    append(line, &p, " ");
+    append_u32(line, &p, bytes);
+    append(line, &p, " B\r\n");
     f = CreateFileA(g_access_log_path, FILE_APPEND_DATA, FILE_SHARE_READ, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
     if (f == INVALID_HANDLE_VALUE) return;
-    WriteFile(f, g_header, (DWORD)p, &wrote, 0);
+    WriteFile(f, line, (DWORD)p, &wrote, 0);
     CloseHandle(f);
 }
 #endif
@@ -534,20 +552,20 @@ static const char *type_for(const char *path) {
     return "application/octet-stream";
 }
 
-static void copy_url_token(const char *url) {
+static void copy_url_token(char *dst, const char *url) {
     int p = 0;
-    while (*url && *url != ' ' && *url != '?' && p < (int)sizeof(g_last_path) - 1) {
-        g_last_path[p++] = *url++;
+    while (*url && *url != ' ' && *url != '?' && p < 127) {
+        dst[p++] = *url++;
     }
-    if (p == 0 || (p == 1 && g_last_path[0] == '/')) {
-        g_last_path[0] = '/';
-        g_last_path[1] = 0;
+    if (p == 0 || (p == 1 && dst[0] == '/')) {
+        dst[0] = '/';
+        dst[1] = 0;
     } else {
-        g_last_path[p] = 0;
+        dst[p] = 0;
     }
 }
 
-static void note_request(int status, DWORD bytes) {
+static void note_request(int status, DWORD bytes, const char *path) {
     InterlockedIncrement((LONG *)&g_request_count);
     InterlockedExchange((LONG *)&g_last_status, status);
 #if PB_FEAT_LOG
@@ -558,8 +576,15 @@ static void note_request(int status, DWORD bytes) {
 #else
     (void)bytes;
 #endif
+#if PB_FEAT_THREADS
+    EnterCriticalSection(&g_note_lock);
+#endif
+    lstrcpynA(g_last_path, path, sizeof(g_last_path));
 #if PB_FEAT_ACCESS_LOG
-    append_log_file(status, bytes);
+    append_log_file(status, bytes, path);
+#endif
+#if PB_FEAT_THREADS
+    LeaveCriticalSection(&g_note_lock);
 #endif
     PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
@@ -627,7 +652,7 @@ static int set_root_full(void) {
     return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-static int make_path(const char *url) {
+static int make_path(PB_CLIENT *ctx, const char *url) {
     int p = 0;
     int i = 0;
     int root_len = lstrlenA(g_root_full);
@@ -637,11 +662,11 @@ static int make_path(const char *url) {
     if (root_len <= 0 || bad_path(url)) return 0;
 
     while (g_root_full[i] && p < PATH_MAX_LOCAL - 2) {
-        char c = g_root_full[i++];
-        g_path[p++] = c;
+        char ch = g_root_full[i++];
+        ctx->path[p++] = ch;
     }
-    if (p > 0 && g_path[p - 1] != '\\' && g_path[p - 1] != '/') {
-        g_path[p++] = '\\';
+    if (p > 0 && ctx->path[p - 1] != '\\' && ctx->path[p - 1] != '/') {
+        ctx->path[p++] = '\\';
     }
 
     if (url[0] == '/' && (url[1] == ' ' || url[1] == '?' || url[1] == 0)) {
@@ -650,15 +675,15 @@ static int make_path(const char *url) {
     if (*url == '/') url++;
 
     while (*url && *url != ' ' && *url != '?' && p < PATH_MAX_LOCAL - 1) {
-        char c = *url++;
-        g_path[p++] = (c == '/') ? '\\' : c;
+        char ch = *url++;
+        ctx->path[p++] = (ch == '/') ? '\\' : ch;
     }
     if (*url && *url != ' ' && *url != '?') return 0;
-    g_path[p] = 0;
+    ctx->path[p] = 0;
 
-    full_len = GetFullPathNameA(g_path, sizeof(full), full, 0);
+    full_len = GetFullPathNameA(ctx->path, sizeof(full), full, 0);
     if (full_len == 0 || full_len >= sizeof(full) || !path_under_root(full)) return 0;
-    lstrcpyA(g_path, full);
+    lstrcpyA(ctx->path, full);
     return 1;
 }
 
@@ -679,26 +704,26 @@ static void set_client_timeout(SOCKET client) {
 }
 #endif
 
-static void send_response(SOCKET client, int status, const char *reason, const char *type, const unsigned char *body, DWORD body_len, int head_only) {
+static void send_response(PB_CLIENT *ctx, int status, const char *reason, const char *type, const unsigned char *body, DWORD body_len, int head_only) {
     int p = 0;
-    append(g_header, &p, "HTTP/1.1 ");
-    append_u32(g_header, &p, (DWORD)status);
-    append(g_header, &p, " ");
-    append(g_header, &p, reason);
-    append(g_header, &p, "\r\nContent-Type: ");
-    append(g_header, &p, type);
-    append(g_header, &p, "\r\nContent-Length: ");
-    append_u32(g_header, &p, body_len);
-    append(g_header, &p, "\r\nConnection: close\r\n\r\n");
-    send_all(client, g_header, (DWORD)p);
+    append(ctx->header, &p, "HTTP/1.1 ");
+    append_u32(ctx->header, &p, (DWORD)status);
+    append(ctx->header, &p, " ");
+    append(ctx->header, &p, reason);
+    append(ctx->header, &p, "\r\nContent-Type: ");
+    append(ctx->header, &p, type);
+    append(ctx->header, &p, "\r\nContent-Length: ");
+    append_u32(ctx->header, &p, body_len);
+    append(ctx->header, &p, "\r\nConnection: close\r\n\r\n");
+    send_all(ctx->client, ctx->header, (DWORD)p);
     if (!head_only && body_len) {
-        send_all(client, (const char *)body, body_len);
+        send_all(ctx->client, (const char *)body, body_len);
     }
 }
 
 #if PB_FEAT_RANGE
-static int parse_range(DWORD file_len, DWORD *start, DWORD *end) {
-    const char *p = find_text(g_request, "\r\nRange: bytes=");
+static int parse_range(PB_CLIENT *ctx, DWORD file_len, DWORD *start, DWORD *end) {
+    const char *p = find_text(ctx->request, "\r\nRange: bytes=");
     DWORD a = 0;
     DWORD b = 0;
     int has_b = 0;
@@ -721,36 +746,36 @@ static int parse_range(DWORD file_len, DWORD *start, DWORD *end) {
     return 1;
 }
 
-static void send_range_bad(SOCKET client, DWORD file_len) {
+static void send_range_bad(PB_CLIENT *ctx, DWORD file_len) {
     int p = 0;
-    append(g_header, &p, "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */");
-    append_u32(g_header, &p, file_len);
-    append(g_header, &p, "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-    send_all(client, g_header, (DWORD)p);
+    append(ctx->header, &p, "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */");
+    append_u32(ctx->header, &p, file_len);
+    append(ctx->header, &p, "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    send_all(ctx->client, ctx->header, (DWORD)p);
 }
 
-static int send_file_range(SOCKET client, HANDLE file, DWORD file_len, DWORD start, DWORD end, const char *type, int head_only) {
+static int send_file_range(PB_CLIENT *ctx, HANDLE file, DWORD file_len, DWORD start, DWORD end, const char *type, int head_only) {
     int p = 0;
     DWORD left = end - start + 1;
     DWORD read_count;
     SetFilePointer(file, (LONG)start, 0, FILE_BEGIN);
-    append(g_header, &p, "HTTP/1.1 206 Partial Content\r\nContent-Type: ");
-    append(g_header, &p, type);
-    append(g_header, &p, "\r\nContent-Range: bytes ");
-    append_u32(g_header, &p, start);
-    append(g_header, &p, "-");
-    append_u32(g_header, &p, end);
-    append(g_header, &p, "/");
-    append_u32(g_header, &p, file_len);
-    append(g_header, &p, "\r\nContent-Length: ");
-    append_u32(g_header, &p, left);
-    append(g_header, &p, "\r\nConnection: close\r\n\r\n");
-    send_all(client, g_header, (DWORD)p);
+    append(ctx->header, &p, "HTTP/1.1 206 Partial Content\r\nContent-Type: ");
+    append(ctx->header, &p, type);
+    append(ctx->header, &p, "\r\nContent-Range: bytes ");
+    append_u32(ctx->header, &p, start);
+    append(ctx->header, &p, "-");
+    append_u32(ctx->header, &p, end);
+    append(ctx->header, &p, "/");
+    append_u32(ctx->header, &p, file_len);
+    append(ctx->header, &p, "\r\nContent-Length: ");
+    append_u32(ctx->header, &p, left);
+    append(ctx->header, &p, "\r\nConnection: close\r\n\r\n");
+    send_all(ctx->client, ctx->header, (DWORD)p);
     if (head_only) return 1;
     while (left) {
         DWORD want = left > STREAM_CHUNK ? STREAM_CHUNK : left;
-        if (!ReadFile(file, g_chunk, want, &read_count, 0) || read_count == 0) return 0;
-        send_all(client, (const char *)g_chunk, read_count);
+        if (!ReadFile(file, ctx->chunk, want, &read_count, 0) || read_count == 0) return 0;
+        send_all(ctx->client, (const char *)ctx->chunk, read_count);
         left -= read_count;
     }
     return 1;
@@ -772,75 +797,76 @@ static void append_html_name(char *dst, int *pos, const char *src) {
     }
 }
 
-static void send_directory_listing(SOCKET client, int head_only) {
+static void send_directory_listing(PB_CLIENT *ctx, int head_only) {
     WIN32_FIND_DATAA fd;
     HANDLE find;
     char pattern[PATH_MAX_LOCAL];
     int p = 0;
-    append(g_dir_body, &p, "<!doctype html><title>Index</title><h1>Index</h1><ul>");
-    lstrcpyA(pattern, g_path);
+    append(ctx->dir_body, &p, "<!doctype html><title>Index</title><h1>Index</h1><ul>");
+    lstrcpyA(pattern, ctx->path);
     lstrcatA(pattern, "\\*");
     find = FindFirstFileA(pattern, &fd);
     if (find != INVALID_HANDLE_VALUE) {
         do {
             if (fd.cFileName[0] == '.') continue;
             if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-            append(g_dir_body, &p, "<li><a href=\"");
-            append_html_name(g_dir_body, &p, fd.cFileName);
-            append(g_dir_body, &p, "\">");
-            append_html_name(g_dir_body, &p, fd.cFileName);
-            append(g_dir_body, &p, "</a></li>");
+            append(ctx->dir_body, &p, "<li><a href=\"");
+            append_html_name(ctx->dir_body, &p, fd.cFileName);
+            append(ctx->dir_body, &p, "\">");
+            append_html_name(ctx->dir_body, &p, fd.cFileName);
+            append(ctx->dir_body, &p, "</a></li>");
         } while (FindNextFileA(find, &fd));
         FindClose(find);
     }
-    append(g_dir_body, &p, "</ul>");
-    send_response(client, 200, "OK", "text/html; charset=utf-8", (const unsigned char *)g_dir_body, (DWORD)p, head_only);
-    note_request(200, head_only ? 0 : (DWORD)p);
+    append(ctx->dir_body, &p, "</ul>");
+    send_response(ctx, 200, "OK", "text/html; charset=utf-8", (const unsigned char *)ctx->dir_body, (DWORD)p, head_only);
+    note_request(200, head_only ? 0 : (DWORD)p, ctx->last_path);
 }
 #endif
 
 #if PB_FEAT_STATUS_ENDPOINT
-static void send_status_endpoint(SOCKET client, int head_only) {
+static void send_status_endpoint(PB_CLIENT *ctx, int head_only) {
     int p = 0;
     DWORD up = g_started_tick ? (GetTickCount() - g_started_tick) / 1000 : 0;
-    append(g_status_body, &p, "target=");
-    append_u32(g_status_body, &p, PB_TARGET_KB);
-    append(g_status_body, &p, "\nrequests=");
-    append_u32(g_status_body, &p, (DWORD)g_request_count);
-    append(g_status_body, &p, "\nbytes=");
-    append_u32(g_status_body, &p, (DWORD)g_bytes_served);
-    append(g_status_body, &p, "\nuptime=");
-    append_u32(g_status_body, &p, up);
-    append(g_status_body, &p, "\nfeatures=LOG,METRICS,STREAM,MIME_PLUS,TIMEOUT,STATUS_ENDPOINT\n");
-    send_response(client, 200, "OK", "text/plain; charset=utf-8", (const unsigned char *)g_status_body, (DWORD)p, head_only);
-    note_request(200, head_only ? 0 : (DWORD)p);
+    append(ctx->status_body, &p, "target=");
+    append_u32(ctx->status_body, &p, PB_TARGET_KB);
+    append(ctx->status_body, &p, "\nrequests=");
+    append_u32(ctx->status_body, &p, (DWORD)g_request_count);
+    append(ctx->status_body, &p, "\nbytes=");
+    append_u32(ctx->status_body, &p, (DWORD)g_bytes_served);
+    append(ctx->status_body, &p, "\nuptime=");
+    append_u32(ctx->status_body, &p, up);
+    append(ctx->status_body, &p, "\nfeatures=LOG,METRICS,STREAM,MIME_PLUS,TIMEOUT,STATUS_ENDPOINT,THREADS\n");
+    send_response(ctx, 200, "OK", "text/plain; charset=utf-8", (const unsigned char *)ctx->status_body, (DWORD)p, head_only);
+    note_request(200, head_only ? 0 : (DWORD)p, ctx->last_path);
 }
 #endif
 
 #if PB_FEAT_STREAM
-static int send_file_response(SOCKET client, HANDLE file, DWORD body_len, const char *type, int head_only) {
+static int send_file_response(PB_CLIENT *ctx, HANDLE file, DWORD body_len, const char *type, int head_only) {
     int p = 0;
     DWORD left = body_len;
     DWORD read_count;
-    append(g_header, &p, "HTTP/1.1 200 OK\r\nContent-Type: ");
-    append(g_header, &p, type);
-    append(g_header, &p, "\r\nContent-Length: ");
-    append_u32(g_header, &p, body_len);
-    append(g_header, &p, "\r\nConnection: close\r\n\r\n");
-    send_all(client, g_header, (DWORD)p);
+    append(ctx->header, &p, "HTTP/1.1 200 OK\r\nContent-Type: ");
+    append(ctx->header, &p, type);
+    append(ctx->header, &p, "\r\nContent-Length: ");
+    append_u32(ctx->header, &p, body_len);
+    append(ctx->header, &p, "\r\nConnection: close\r\n\r\n");
+    send_all(ctx->client, ctx->header, (DWORD)p);
     if (head_only) return 1;
     while (left) {
         DWORD want = left > STREAM_CHUNK ? STREAM_CHUNK : left;
-        if (!ReadFile(file, g_chunk, want, &read_count, 0) || read_count == 0) return 0;
-        send_all(client, (const char *)g_chunk, read_count);
+        if (!ReadFile(file, ctx->chunk, want, &read_count, 0) || read_count == 0) return 0;
+        send_all(ctx->client, (const char *)ctx->chunk, read_count);
         left -= read_count;
     }
     return 1;
 }
 #endif
 
-static void handle_client(SOCKET client) {
-    int n = recv(client, g_request, REQ_MAX - 1, 0);
+static void handle_client(PB_CLIENT *ctx) {
+    SOCKET client = ctx->client;
+    int n = recv(client, ctx->request, REQ_MAX - 1, 0);
     int head_only = 0;
     const char *url;
     HANDLE file;
@@ -854,70 +880,70 @@ static void handle_client(SOCKET client) {
         closesocket(client);
         return;
     }
-    g_request[n] = 0;
+    ctx->request[n] = 0;
 
-    if (starts_with(g_request, "HEAD ")) {
+    if (starts_with(ctx->request, "HEAD ")) {
         head_only = 1;
-        url = g_request + 5;
-    } else if (!starts_with(g_request, "GET ")) {
+        url = ctx->request + 5;
+    } else if (!starts_with(ctx->request, "GET ")) {
         static const unsigned char msg[] = "Method Not Allowed\n";
-        send_response(client, 405, "Method Not Allowed", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        lstrcpyA(g_last_path, "(method)");
-        note_request(405, 0);
+        send_response(ctx, 405, "Method Not Allowed", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        lstrcpyA(ctx->last_path, "(method)");
+        note_request(405, 0, ctx->last_path);
         closesocket(client);
         return;
     } else {
-        url = g_request + 4;
+        url = ctx->request + 4;
     }
 
-    copy_url_token(url);
+    copy_url_token(ctx->last_path, url);
     if (!good_request_line(url)) {
         static const unsigned char msg[] = "Bad Request\n";
-        send_response(client, 400, "Bad Request", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(400, 0);
+        send_response(ctx, 400, "Bad Request", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(400, 0, ctx->last_path);
         closesocket(client);
         return;
     }
 
 #if PB_FEAT_STATUS_ENDPOINT
     if (token_equals(url, "/__pb/status")) {
-        send_status_endpoint(client, head_only);
+        send_status_endpoint(ctx, head_only);
         closesocket(client);
         return;
     }
 #endif
 
-    if (!make_path(url)) {
+    if (!make_path(ctx, url)) {
         static const unsigned char msg[] = "Forbidden\n";
-        send_response(client, 403, "Forbidden", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(403, 0);
+        send_response(ctx, 403, "Forbidden", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(403, 0, ctx->last_path);
         closesocket(client);
         return;
     }
 
-    attr = GetFileAttributesA(g_path);
+    attr = GetFileAttributesA(ctx->path);
     if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
 #if PB_FEAT_DIR_LIST
         if (g_dir_list) {
-            send_directory_listing(client, head_only);
+            send_directory_listing(ctx, head_only);
             closesocket(client);
             return;
         }
 #endif
         {
             static const unsigned char msg[] = "Not Found\n";
-            send_response(client, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-            note_request(404, 0);
+            send_response(ctx, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+            note_request(404, 0, ctx->last_path);
             closesocket(client);
             return;
         }
     }
 
-    file = CreateFileA(g_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    file = CreateFileA(ctx->path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     if (file == INVALID_HANDLE_VALUE) {
         static const unsigned char msg[] = "Not Found\n";
-        send_response(client, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(404, 0);
+        send_response(ctx, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(404, 0, ctx->last_path);
         closesocket(client);
         return;
     }
@@ -927,8 +953,8 @@ static void handle_client(SOCKET client) {
     if (size_low == INVALID_FILE_SIZE) {
         static const unsigned char msg[] = "Read Error\n";
         CloseHandle(file);
-        send_response(client, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(500, 0);
+        send_response(ctx, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(500, 0, ctx->last_path);
         closesocket(client);
         return;
     }
@@ -937,64 +963,73 @@ static void handle_client(SOCKET client) {
 #if PB_FEAT_RANGE
         DWORD range_start = 0;
         DWORD range_end = 0;
-        int range = parse_range(size_low, &range_start, &range_end);
+        int range = parse_range(ctx, size_low, &range_start, &range_end);
         if (range < 0) {
-            send_range_bad(client, size_low);
+            send_range_bad(ctx, size_low);
             CloseHandle(file);
-            note_request(416, 0);
+            note_request(416, 0, ctx->last_path);
             closesocket(client);
             return;
         }
         if (range > 0) {
-            if (!send_file_range(client, file, size_low, range_start, range_end, type_for(g_path), head_only)) {
+            if (!send_file_range(ctx, file, size_low, range_start, range_end, type_for(ctx->path), head_only)) {
                 CloseHandle(file);
-                note_request(500, 0);
+                note_request(500, 0, ctx->last_path);
                 closesocket(client);
                 return;
             }
             CloseHandle(file);
-            note_request(206, head_only ? 0 : range_end - range_start + 1);
+            note_request(206, head_only ? 0 : range_end - range_start + 1, ctx->last_path);
             closesocket(client);
             return;
         }
 #endif
     }
-    if (!send_file_response(client, file, size_low, type_for(g_path), head_only)) {
+    if (!send_file_response(ctx, file, size_low, type_for(ctx->path), head_only)) {
         CloseHandle(file);
-        note_request(500, 0);
+        note_request(500, 0, ctx->last_path);
         closesocket(client);
         return;
     }
 
     CloseHandle(file);
-    note_request(200, head_only ? 0 : size_low);
+    note_request(200, head_only ? 0 : size_low, ctx->last_path);
     closesocket(client);
     return;
 #else
     if (size_low == INVALID_FILE_SIZE || size_low > FILE_MAX) {
         static const unsigned char msg[] = "File Too Large\n";
         CloseHandle(file);
-        send_response(client, 413, "Payload Too Large", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(413, 0);
+        send_response(ctx, 413, "Payload Too Large", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(413, 0, ctx->last_path);
         closesocket(client);
         return;
     }
 
-    if (!ReadFile(file, g_file, size_low, &read_count, 0) || read_count != size_low) {
+    if (!ReadFile(file, ctx->file, size_low, &read_count, 0) || read_count != size_low) {
         static const unsigned char msg[] = "Read Error\n";
         CloseHandle(file);
-        send_response(client, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(500, 0);
+        send_response(ctx, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(500, 0, ctx->last_path);
         closesocket(client);
         return;
     }
 
     CloseHandle(file);
-    send_response(client, 200, "OK", type_for(g_path), g_file, size_low, head_only);
-    note_request(200, head_only ? 0 : size_low);
+    send_response(ctx, 200, "OK", type_for(ctx->path), ctx->file, size_low, head_only);
+    note_request(200, head_only ? 0 : size_low, ctx->last_path);
     closesocket(client);
 #endif
 }
+
+#if PB_FEAT_THREADS
+static DWORD WINAPI client_thread(LPVOID param) {
+    PB_CLIENT *ctx = (PB_CLIENT *)param;
+    handle_client(ctx);
+    HeapFree(GetProcessHeap(), 0, ctx);
+    return 0;
+}
+#endif
 
 static DWORD WINAPI server_thread(LPVOID unused) {
     WSADATA wsa;
@@ -1066,11 +1101,31 @@ static DWORD WINAPI server_thread(LPVOID unused) {
 
     while (g_running) {
         SOCKET client = accept(g_listener, 0, 0);
+        PB_CLIENT *ctx;
         if (client == INVALID_SOCKET) break;
+        ctx = (PB_CLIENT *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PB_CLIENT));
+        if (!ctx) {
+            closesocket(client);
+            continue;
+        }
+        ctx->client = client;
 #if PB_FEAT_TIMEOUT
         set_client_timeout(client);
 #endif
-        handle_client(client);
+#if PB_FEAT_THREADS
+        {
+            HANDLE worker = CreateThread(0, 0, client_thread, ctx, 0, 0);
+            if (worker) {
+                CloseHandle(worker);
+            } else {
+                handle_client(ctx);
+                HeapFree(GetProcessHeap(), 0, ctx);
+            }
+        }
+#else
+        handle_client(ctx);
+        HeapFree(GetProcessHeap(), 0, ctx);
+#endif
     }
 
     if (g_listener != INVALID_SOCKET) {
@@ -1354,6 +1409,9 @@ void WinMainCRTStartup(void) {
     MSG msg;
     HINSTANCE inst = GetModuleHandleA(0);
 
+#if PB_FEAT_THREADS
+    InitializeCriticalSection(&g_note_lock);
+#endif
     zero_bytes(&wc, sizeof(wc));
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = inst;
