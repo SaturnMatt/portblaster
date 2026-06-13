@@ -44,6 +44,7 @@ function Get-FeatureDefines {
         elseif ($name -eq 'RANGE') { $defs += '/DPB_FEAT_RANGE=1' }
         elseif ($name -eq 'MIME_PLUS') { $defs += '/DPB_FEAT_MIME_PLUS=1' }
         elseif ($name -eq 'COPY_URL') { $defs += '/DPB_FEAT_COPY_URL=1' }
+        elseif ($name -eq 'BROWSE') { $defs += '/DPB_FEAT_BROWSE=1' }
         elseif ($name -eq 'TIMEOUT') { $defs += '/DPB_FEAT_TIMEOUT=1' }
         elseif ($name -eq 'STATUS_ENDPOINT') { $defs += '/DPB_FEAT_STATUS_ENDPOINT=1' }
         elseif ($name -eq 'ACCESS_LOG') { $defs += '/DPB_FEAT_ACCESS_LOG=1' }
@@ -51,7 +52,7 @@ function Get-FeatureDefines {
         elseif ($name -eq 'DIR_LIST') { $defs += '/DPB_FEAT_DIR_LIST=1' }
         elseif ($name -eq 'BIND_ALL') { $defs += '/DPB_FEAT_BIND_ALL=1' }
         elseif ($name -eq 'IPV6') { $defs += '/DPB_FEAT_IPV6=1' }
-        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, COPY_URL, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6." }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, COPY_URL, BROWSE, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6." }
     }
     return ($defs -join ' ')
 }
@@ -69,20 +70,20 @@ function Invoke-ServerBuild {
     $outPath = if ($Jelly) { "build\pbjelly\$Name.exe" } else { "build\$Name.exe" }
     $debugDefs = if ($Jelly) { '/DPB_FEAT_JELLY=1 /DPORTBLASTER_CHECK' } else { '' }
     if ($Debug) {
-        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
+        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib shell32.lib ole32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
     } else {
-        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
+        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib shell32.lib ole32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
     }
 }
 
 Push-Location $projectRoot
 try {
     Invoke-ServerBuild 'pb20' 20 @() $false $false
-    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL') $false $false
-    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $false $false
+    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL', 'BROWSE') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $false $false
     Invoke-ServerBuild 'pbj20' 20 @() $true $true
-    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL') $true $true
-    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $true $true
+    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL', 'BROWSE') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'BROWSE', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $true $true
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }

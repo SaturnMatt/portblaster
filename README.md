@@ -6,6 +6,7 @@ Tiny Win32 GUI wrapper around the barebones C HTTP server.
 
 - Start / stop button.
 - Copy URL button in `pb50` and `pb100`.
+- Browse root button in `pb50` and `pb100`.
 - Editable port.
 - Editable root directory.
 - Auto-filled root directory relative to the exe.
@@ -38,7 +39,7 @@ The build script creates:
 The three release builds come from the same `portblaster.c` source with compile-time feature flags:
 
 - `pb20.exe` - safety-first minimum build.
-- `pb50.exe` - adds request log, uptime, bytes served, title state, and Copy URL.
+- `pb50.exe` - adds request log, uptime, bytes served, title state, Copy URL, and Browse root.
 - `pb100.exe` - adds chunked streaming for larger files.
 - `pb100.exe` also supports `portblaster.ini` beside the exe with `port=`, `root=`, `dir_list=1`, explicit `bind=all`, and explicit `ipv6=1` lines.
 

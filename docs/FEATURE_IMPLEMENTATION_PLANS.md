@@ -13,6 +13,8 @@ The server should stay one source file, `portblaster.c`, with compile-time featu
 
 ## 1. Browse Root Button
 
+Status: Complete
+
 Build fit: `pb50`, `pb100`
 
 Goal:
@@ -35,6 +37,7 @@ Acceptance:
 - Selecting a valid folder lets the server start.
 - Cancelling the dialog leaves the root unchanged.
 - `pb20` size is unaffected.
+- The selected value is only written to the existing root edit field and remains validated by the normal start path.
 
 ## 2. Copy URL Button
 

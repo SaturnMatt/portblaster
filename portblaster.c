@@ -2,6 +2,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <shlobj.h>
 
 #ifndef PB_TARGET_KB
 #define PB_TARGET_KB 50
@@ -52,6 +53,14 @@
 #define PB_FEAT_COPY_URL 1
 #else
 #define PB_FEAT_COPY_URL 0
+#endif
+#endif
+
+#ifndef PB_FEAT_BROWSE
+#if PB_TARGET_KB >= 50
+#define PB_FEAT_BROWSE 1
+#else
+#define PB_FEAT_BROWSE 0
 #endif
 #endif
 
@@ -126,6 +135,7 @@
 #define ID_STATUS 105
 #define ID_ACTIVITY 106
 #define ID_COPY_URL 107
+#define ID_BROWSE 108
 
 #define REQ_MAX 1024
 #define ROOT_MAX 384
@@ -136,6 +146,9 @@
 
 static HWND g_port_edit;
 static HWND g_root_edit;
+#if PB_FEAT_BROWSE
+static HWND g_browse_button;
+#endif
 static HWND g_start_button;
 static HWND g_stop_button;
 #if PB_FEAT_COPY_URL
@@ -424,6 +437,24 @@ static int contains(const char *s, const char *needle) {
         s++;
     }
     return 0;
+}
+#endif
+
+#if PB_FEAT_BROWSE
+static void browse_root(void) {
+    BROWSEINFOA bi;
+    LPITEMIDLIST pidl;
+    char path[ROOT_MAX];
+    zero_bytes(&bi, sizeof(bi));
+    bi.hwndOwner = g_main;
+    bi.lpszTitle = "Choose PortBlaster root";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS;
+    pidl = SHBrowseForFolderA(&bi);
+    if (!pidl) return;
+    if (SHGetPathFromIDListA(pidl, path)) {
+        SetWindowTextA(g_root_edit, path);
+    }
+    CoTaskMemFree(pidl);
 }
 #endif
 
@@ -1112,6 +1143,9 @@ static void set_running_ui(int running) {
 #endif
     EnableWindow(g_port_edit, !running);
     EnableWindow(g_root_edit, !running);
+#if PB_FEAT_BROWSE
+    EnableWindow(g_browse_button, !running);
+#endif
 }
 
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -1132,7 +1166,12 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #if PB_FEAT_ACCESS_LOG
         set_access_log_path();
 #endif
+#if PB_FEAT_BROWSE
+        g_root_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", g_root, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 46, 270, 24, hwnd, (HMENU)ID_ROOT, 0, 0);
+        g_browse_button = CreateWindowA("BUTTON", "Browse", WS_CHILD | WS_VISIBLE, 362, 46, 80, 24, hwnd, (HMENU)ID_BROWSE, 0, 0);
+#else
         g_root_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", g_root, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 46, 360, 24, hwnd, (HMENU)ID_ROOT, 0, 0);
+#endif
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);
 #if PB_FEAT_COPY_URL
@@ -1150,6 +1189,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == ID_START) start_server();
         if (LOWORD(wp) == ID_STOP) stop_server();
+#if PB_FEAT_BROWSE
+        if (LOWORD(wp) == ID_BROWSE) browse_root();
+#endif
 #if PB_FEAT_COPY_URL
         if (LOWORD(wp) == ID_COPY_URL) copy_current_url();
 #endif
