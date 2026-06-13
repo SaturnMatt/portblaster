@@ -245,6 +245,8 @@ Acceptance:
 
 ## 11. Status Endpoint
 
+Status: Complete
+
 Build fit: `pb100`
 
 Goal:
@@ -263,7 +265,7 @@ Safety notes:
 
 Acceptance:
 - `GET /__pb/status` returns current counters.
-- `pbjelly` can optionally include status endpoint data in reports.
+- `pbjelly` validates that smaller builds return `404` and `pb100` returns a status body with target, counters, uptime, and features.
 
 ## 12. HTTP Range Requests
 

@@ -303,6 +303,25 @@ static void probe_mime(const char *name, const char *path, const char *expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_status_endpoint(int expect) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok;
+    make_req("GET", "/__pb/status");
+    code = request_raw(g_req, &ms, &bytes);
+    ok = code == expect;
+    if (expect == 200) {
+        ok = ok && has_text(g_recv, "target=100") && has_text(g_recv, "requests=") &&
+            has_text(g_recv, "features=") && has_text(g_recv, "STATUS_ENDPOINT");
+    }
+    out(ok ? "PASS status_endpoint -> " : "FAIL status_endpoint -> ");
+    print_u32((DWORD)code);
+    out("\r\n");
+    report_row("status_endpoint", (DWORD)expect, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void probe_idle_timeout(void) {
     SOCKET s = connect_target_with_timeout(8000);
     DWORD start = GetTickCount();
@@ -365,6 +384,7 @@ int main(int argc, char **argv) {
     DWORD big_expect = 0;
     DWORD mime_plus = 0;
     DWORD timeout_check = 0;
+    DWORD status_expect = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -406,6 +426,9 @@ int main(int argc, char **argv) {
     }
     if (argc > 6) {
         timeout_check = parse_u32(argv[6]);
+    }
+    if (argc > 7) {
+        status_expect = parse_u32(argv[7]);
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
@@ -454,6 +477,9 @@ int main(int argc, char **argv) {
     }
     if (timeout_check) {
         probe_idle_timeout();
+    }
+    if (status_expect) {
+        probe_status_endpoint((int)status_expect);
     }
     load("/", 100);
 

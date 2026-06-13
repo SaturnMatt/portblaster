@@ -46,6 +46,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_STATUS_ENDPOINT
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_STATUS_ENDPOINT 1
+#else
+#define PB_FEAT_STATUS_ENDPOINT 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -101,6 +109,9 @@ static unsigned short g_port = 8083;
 static char g_request[REQ_MAX];
 static char g_path[PATH_MAX_LOCAL];
 static char g_header[HEADER_MAX];
+#if PB_FEAT_STATUS_ENDPOINT
+static char g_status_body[HEADER_MAX];
+#endif
 #if PB_FEAT_STREAM
 static unsigned char g_chunk[STREAM_CHUNK];
 #else
@@ -205,6 +216,13 @@ static int starts_with(const char *s, const char *prefix) {
         if (*s++ != *prefix++) return 0;
     }
     return 1;
+}
+
+static int token_equals(const char *s, const char *token) {
+    while (*token) {
+        if (*s++ != *token++) return 0;
+    }
+    return *s == ' ' || *s == '?' || *s == 0 || *s == '\r' || *s == '\n';
 }
 
 #if PB_FEAT_JELLY
@@ -406,6 +424,24 @@ static void send_response(SOCKET client, int status, const char *reason, const c
     }
 }
 
+#if PB_FEAT_STATUS_ENDPOINT
+static void send_status_endpoint(SOCKET client, int head_only) {
+    int p = 0;
+    DWORD up = g_started_tick ? (GetTickCount() - g_started_tick) / 1000 : 0;
+    append(g_status_body, &p, "target=");
+    append_u32(g_status_body, &p, PB_TARGET_KB);
+    append(g_status_body, &p, "\nrequests=");
+    append_u32(g_status_body, &p, (DWORD)g_request_count);
+    append(g_status_body, &p, "\nbytes=");
+    append_u32(g_status_body, &p, (DWORD)g_bytes_served);
+    append(g_status_body, &p, "\nuptime=");
+    append_u32(g_status_body, &p, up);
+    append(g_status_body, &p, "\nfeatures=LOG,METRICS,STREAM,MIME_PLUS,TIMEOUT,STATUS_ENDPOINT\n");
+    send_response(client, 200, "OK", "text/plain; charset=utf-8", (const unsigned char *)g_status_body, (DWORD)p, head_only);
+    note_request(200, head_only ? 0 : (DWORD)p);
+}
+#endif
+
 #if PB_FEAT_STREAM
 static int send_file_response(SOCKET client, HANDLE file, DWORD body_len, const char *type, int head_only) {
     int p = 0;
@@ -466,6 +502,14 @@ static void handle_client(SOCKET client) {
         closesocket(client);
         return;
     }
+
+#if PB_FEAT_STATUS_ENDPOINT
+    if (token_equals(url, "/__pb/status")) {
+        send_status_endpoint(client, head_only);
+        closesocket(client);
+        return;
+    }
+#endif
 
     if (!make_path(url)) {
         static const unsigned char msg[] = "Forbidden\n";
