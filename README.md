@@ -111,3 +111,7 @@ browser -> https reverse proxy -> http://127.0.0.1:8083/
 ```
 
 Do not expose PortBlaster directly on a public interface unless a future build explicitly adds and validates that mode.
+
+## Intentional omissions
+
+Compression and keep-alive are intentionally not part of the standard builds. PortBlaster prioritizes safety and tiny size, so responses stay uncompressed and close after each request.

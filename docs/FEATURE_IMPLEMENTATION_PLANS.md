@@ -478,6 +478,8 @@ Acceptance:
 
 ## 20. Compression
 
+Status: Complete - deferred by design
+
 Build fit: skip for now
 
 Goal:
@@ -491,7 +493,13 @@ Revisit only if:
 - A tiny static implementation is proven safe and useful.
 - `pbjelly` can measure a real benefit.
 
+Acceptance:
+- Standard builds do not advertise or emit compressed responses.
+- `pbjelly` verifies that `Accept-Encoding: gzip` does not produce `Content-Encoding`.
+
 ## 21. Keep-Alive
+
+Status: Complete - deferred by design
 
 Build fit: skip for now
 
@@ -505,3 +513,7 @@ Reason:
 Revisit only if:
 - Connection setup overhead becomes a measured problem.
 - Per-request timeout and concurrency are already solid.
+
+Acceptance:
+- Standard builds continue to close each connection.
+- `pbjelly` verifies that a `Connection: keep-alive` request still receives `Connection: close`.

@@ -462,6 +462,18 @@ static void probe_range(int expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_no_compress_keepalive(void) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code = request_raw("GET / HTTP/1.1\r\nHost: x\r\nAccept-Encoding: gzip\r\nConnection: keep-alive\r\n\r\n", &ms, &bytes);
+    int ok = code == 200 && has_text(g_recv, "Connection: close") && !has_text(g_recv, "Content-Encoding:");
+    out(ok ? "PASS no_compress_keepalive -> " : "FAIL no_compress_keepalive -> ");
+    print_u32((DWORD)code);
+    out("\r\n");
+    report_row("no_compress_keepalive", 200, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void probe_bind(int expect_all) {
     DWORD size = 0;
     PMIB_TCPTABLE table;
@@ -938,6 +950,7 @@ int main(int argc, char **argv) {
     if (range_expect) {
         probe_range((int)range_expect);
     }
+    probe_no_compress_keepalive();
     if (bind_expect < 2) {
         probe_bind((int)bind_expect);
     }
