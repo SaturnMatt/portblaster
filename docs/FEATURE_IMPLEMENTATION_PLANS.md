@@ -391,6 +391,8 @@ Acceptance:
 
 ## 17. Real-Time Defense Reactions
 
+Status: Complete
+
 Build fit: `pbjelly` first, `pb100` maybe later
 
 Goal:

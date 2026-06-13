@@ -16,6 +16,9 @@ static int g_fail = 0;
 static HANDLE g_report = INVALID_HANDLE_VALUE;
 static char g_big_path[MAX_PATH];
 static char g_report_dir[MAX_PATH];
+static DWORD g_defense_blocked = 0;
+static DWORD g_defense_served = 0;
+static DWORD g_defense_unexpected = 0;
 
 static int same(const char *a, const char *b) {
     while (*a && *b && *a == *b) {
@@ -79,6 +82,22 @@ static void out(const char *s) {
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), s, lstrlenA(s), &n, 0);
 }
 
+static const char *defense_word(DWORD expect, DWORD got) {
+    if (expect < 100 || got < 100) return "-";
+    if (expect != got) return "unexpected";
+    if (expect >= 400) return "blocked";
+    if (expect == 206) return "served range";
+    return "served";
+}
+
+static void out_reaction(DWORD expect, DWORD got) {
+    const char *word = defense_word(expect, got);
+    if (word[0] != '-') {
+        out(" ");
+        out(word);
+    }
+}
+
 static void report(const char *s) {
     DWORD n;
     if (g_report != INVALID_HANDLE_VALUE) {
@@ -126,11 +145,17 @@ static void report_begin(void) {
     report_esc(g_host);
     report(":");
     report_u32(g_port);
-    report("</code></p><table><tr><th>Probe</th><th>Expect</th><th>Got</th><th>Time</th><th>Bytes</th><th>Result</th></tr>");
+    report("</code></p><table><tr><th>Probe</th><th>Expect</th><th>Got</th><th>Time</th><th>Bytes</th><th>Result</th><th>Defense</th></tr>");
 }
 
 static void report_row(const char *name, DWORD expect, DWORD got, DWORD ms, DWORD bytes) {
+    const char *word = defense_word(expect, got);
     if (g_report == INVALID_HANDLE_VALUE) return;
+    if (expect >= 100 && got >= 100) {
+        if (expect != got) g_defense_unexpected++;
+        else if (expect >= 400) g_defense_blocked++;
+        else g_defense_served++;
+    }
     report("<tr><td>");
     report_esc(name);
     report("</td><td>");
@@ -143,6 +168,8 @@ static void report_row(const char *name, DWORD expect, DWORD got, DWORD ms, DWOR
     report_u32(bytes);
     report("</td><td>");
     report(expect == got ? "PASS" : "FAIL");
+    report("</td><td>");
+    report(word);
     report("</td></tr>");
 }
 
@@ -163,7 +190,13 @@ static void report_load(DWORD count, DWORD ok, DWORD avg, DWORD max, DWORD bytes
 
 static void report_end(void) {
     if (g_report == INVALID_HANDLE_VALUE) return;
-    report("<h2>Result</h2><p>");
+    report("<h2>Defense summary</h2><p>Blocked: ");
+    report_u32(g_defense_blocked);
+    report(" | Served: ");
+    report_u32(g_defense_served);
+    report(" | Unexpected: ");
+    report_u32(g_defense_unexpected);
+    report("</p><h2>Result</h2><p>");
     report(g_fail ? "FAIL" : "PASS");
     report("</p></main></body></html>");
     CloseHandle(g_report);
@@ -322,7 +355,9 @@ static void probe(const char *name, const char *method, const char *path, int ex
     print_u32(ms);
     out("ms ");
     print_u32(bytes);
-    out("B\r\n");
+    out("B");
+    out_reaction((DWORD)expect, (DWORD)code);
+    out("\r\n");
     report_row(name, (DWORD)expect, (DWORD)code, ms, bytes);
     if (code != expect) g_fail++;
 }
@@ -341,6 +376,7 @@ static void probe_mime(const char *name, const char *path, const char *expect) {
     print_u32((DWORD)code);
     out(" ");
     out(expect);
+    out_reaction(200, (DWORD)code);
     out("\r\n");
     report_row(name, 200, (DWORD)code, ms, bytes);
     if (!ok) g_fail++;
@@ -360,6 +396,7 @@ static void probe_status_endpoint(int expect) {
     }
     out(ok ? "PASS status_endpoint -> " : "FAIL status_endpoint -> ");
     print_u32((DWORD)code);
+    out_reaction((DWORD)expect, (DWORD)code);
     out("\r\n");
     report_row("status_endpoint", (DWORD)expect, (DWORD)code, ms, bytes);
     if (!ok) g_fail++;
@@ -376,6 +413,7 @@ static void probe_dir_listing(int expect) {
     if (expect == 200) ok = ok && has_text(g_recv, "shown.txt");
     out(ok ? "PASS dir_listing -> " : "FAIL dir_listing -> ");
     print_u32((DWORD)code);
+    out_reaction((DWORD)expect, (DWORD)code);
     out("\r\n");
     report_row("dir_listing", (DWORD)expect, (DWORD)code, ms, bytes);
     if (!ok) g_fail++;
@@ -389,6 +427,7 @@ static void probe_range(int expect) {
     if (expect == 206) ok = ok && has_text(g_recv, "Content-Range: bytes 0-3/");
     out(ok ? "PASS range_valid -> " : "FAIL range_valid -> ");
     print_u32((DWORD)code);
+    out_reaction((DWORD)expect, (DWORD)code);
     out("\r\n");
     report_row("range_valid", (DWORD)expect, (DWORD)code, ms, bytes);
     if (!ok) g_fail++;
@@ -397,6 +436,7 @@ static void probe_range(int expect) {
     ok = code == (expect == 206 ? 416 : 200);
     out(ok ? "PASS range_invalid -> " : "FAIL range_invalid -> ");
     print_u32((DWORD)code);
+    out_reaction(expect == 206 ? 416 : 200, (DWORD)code);
     out("\r\n");
     report_row("range_invalid", expect == 206 ? 416 : 200, (DWORD)code, ms, bytes);
     if (!ok) g_fail++;
@@ -642,10 +682,10 @@ int main(int argc, char **argv) {
     if (bind_expect < 2) {
         probe_bind((int)bind_expect);
     }
-    load("/", 100);
     if (argc > 8) {
         probe_access_log(argv[8], (int)access_log_expect);
     }
+    load("/", 100);
 
     WSACleanup();
     out(g_fail ? "RESULT fail\r\n" : "RESULT pass\r\n");

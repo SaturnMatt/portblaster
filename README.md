@@ -68,7 +68,7 @@ Start PortBlaster, then run:
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083
 ```
 
-`pbjelly` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
+`pbjelly` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals. Its CLI and HTML report label HTTP probes as served, blocked, or unexpected so defense behavior is visible while testing.
 Add a third argument to write an HTML report that PortBlaster can serve:
 
 ```powershell
