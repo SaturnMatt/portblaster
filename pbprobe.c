@@ -10,6 +10,7 @@ static char g_req[REQ_MAX];
 static char g_host[128] = "127.0.0.1";
 static unsigned short g_port = 8083;
 static int g_fail = 0;
+static HANDLE g_report = INVALID_HANDLE_VALUE;
 
 static int same(const char *a, const char *b) {
     while (*a && *b && *a == *b) {
@@ -48,6 +49,97 @@ static void print_u32(DWORD v) {
 static void out(const char *s) {
     DWORD n;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), s, lstrlenA(s), &n, 0);
+}
+
+static void report(const char *s) {
+    DWORD n;
+    if (g_report != INVALID_HANDLE_VALUE) {
+        WriteFile(g_report, s, lstrlenA(s), &n, 0);
+    }
+}
+
+static void report_u32(DWORD v) {
+    char s[16];
+    DWORD n = 0;
+    if (!v) {
+        report("0");
+        return;
+    }
+    while (v && n < sizeof(s)) {
+        s[n++] = (char)('0' + v % 10);
+        v /= 10;
+    }
+    while (n) {
+        char c[2];
+        c[0] = s[--n];
+        c[1] = 0;
+        report(c);
+    }
+}
+
+static void report_esc(const char *s) {
+    while (*s) {
+        if (*s == '<') report("&lt;");
+        else if (*s == '>') report("&gt;");
+        else if (*s == '&') report("&amp;");
+        else {
+            char c[2];
+            c[0] = *s;
+            c[1] = 0;
+            report(c);
+        }
+        s++;
+    }
+}
+
+static void report_begin(void) {
+    if (g_report == INVALID_HANDLE_VALUE) return;
+    report("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>PortBlaster Probe Report</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main><nav><a href=\"/\">home</a> <a href=\"/probe.html\">probe</a></nav><h1>Probe Report</h1><p>Target: <code>");
+    report_esc(g_host);
+    report(":");
+    report_u32(g_port);
+    report("</code></p><table><tr><th>Probe</th><th>Expect</th><th>Got</th><th>Time</th><th>Bytes</th><th>Result</th></tr>");
+}
+
+static void report_row(const char *name, DWORD expect, DWORD got, DWORD ms, DWORD bytes) {
+    if (g_report == INVALID_HANDLE_VALUE) return;
+    report("<tr><td>");
+    report_esc(name);
+    report("</td><td>");
+    report_u32(expect);
+    report("</td><td>");
+    report_u32(got);
+    report("</td><td>");
+    report_u32(ms);
+    report(" ms</td><td>");
+    report_u32(bytes);
+    report("</td><td>");
+    report(expect == got ? "PASS" : "FAIL");
+    report("</td></tr>");
+}
+
+static void report_load(DWORD count, DWORD ok, DWORD avg, DWORD max, DWORD bytes) {
+    if (g_report == INVALID_HANDLE_VALUE) return;
+    report("</table><h2>Load</h2><p>Requests: ");
+    report_u32(count);
+    report(" | OK: ");
+    report_u32(ok);
+    report(" | Avg: ");
+    report_u32(avg);
+    report(" ms | Max: ");
+    report_u32(max);
+    report(" ms | Bytes: ");
+    report_u32(bytes);
+    report("</p>");
+}
+
+static void report_end(void) {
+    if (g_report == INVALID_HANDLE_VALUE) return;
+    report("<h2>Result</h2><p>");
+    report(g_fail ? "FAIL" : "PASS");
+    report("</p></main></body></html>");
+    CloseHandle(g_report);
+    g_report = INVALID_HANDLE_VALUE;
 }
 
 static SOCKET connect_target(void) {
@@ -110,6 +202,7 @@ static void probe(const char *name, const char *method, const char *path, int ex
     out("ms ");
     print_u32(bytes);
     out("B\r\n");
+    report_row(name, (DWORD)expect, (DWORD)code, ms, bytes);
     if (code != expect) g_fail++;
 }
 
@@ -141,6 +234,7 @@ static void load(const char *path, DWORD count) {
     out(" bytes=");
     print_u32(bytes);
     out("\r\n");
+    report_load(count, ok, count ? total / count : 0, max, bytes);
     if (ok != count) g_fail++;
 }
 
@@ -158,6 +252,13 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+    if (argc > 3) {
+        g_report = CreateFileA(argv[3], GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+        if (g_report == INVALID_HANDLE_VALUE) {
+            out("could not write report\r\n");
+            return 2;
+        }
+    }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
     out("pbprobe target=");
@@ -165,6 +266,7 @@ int main(int argc, char **argv) {
     out(":");
     print_u32(g_port);
     out("\r\n");
+    report_begin();
 
     probe("home", "GET", "/", 200);
     probe("head", "HEAD", "/", 200);
@@ -179,20 +281,24 @@ int main(int argc, char **argv) {
     out(code == 400 ? "PASS no_version -> " : "FAIL no_version -> ");
     print_u32((DWORD)code);
     out("\r\n");
+    report_row("no_version", 400, (DWORD)code, ms, bytes);
     if (code != 400) g_fail++;
     code = request_raw("GET / HTTP/9.9\r\nHost: x\r\n\r\n", &ms, &bytes);
     out(code == 400 ? "PASS bad_version -> " : "FAIL bad_version -> ");
     print_u32((DWORD)code);
     out("\r\n");
+    report_row("bad_version", 400, (DWORD)code, ms, bytes);
     if (code != 400) g_fail++;
     code = request_raw("GET / HTTP/1.1\r\nHost: x\r\nX-A: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\nConnection: close\r\n\r\n", &ms, &bytes);
     out(code == 200 ? "PASS long_header -> " : "FAIL long_header -> ");
     print_u32((DWORD)code);
     out("\r\n");
+    report_row("long_header", 200, (DWORD)code, ms, bytes);
     if (code != 200) g_fail++;
     load("/", 100);
 
     WSACleanup();
     out(g_fail ? "RESULT fail\r\n" : "RESULT pass\r\n");
+    report_end();
     return g_fail ? 1 : 0;
 }

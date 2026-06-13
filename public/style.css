@@ -52,6 +52,24 @@ code {
   padding: 2px 4px;
 }
 
+pre {
+  overflow-x: auto;
+  padding: 12px;
+  background: #111118;
+  color: #fffef2;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+td, th {
+  padding: 6px;
+  border: 2px solid #111118;
+  text-align: left;
+}
+
 .note {
   margin-bottom: 0;
 }
