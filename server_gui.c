@@ -28,6 +28,8 @@ static HANDLE g_thread = 0;
 static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
 static volatile LONG g_last_status = 0;
+static volatile LONG g_bytes_served = 0;
+static DWORD g_started_tick = 0;
 static char g_root[ROOT_MAX];
 static char g_root_full[PATH_MAX_LOCAL];
 static char g_url[64];
@@ -58,19 +60,23 @@ static void set_default_root(void) {
 
 static void set_running_status(void) {
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
+    wsprintfA(g_activity_text, "PortBlaster - Running :%u", (unsigned int)g_port);
+    SetWindowTextA(g_main, g_activity_text);
     wsprintfA(g_activity_text, "Running: %s", g_url);
     set_status(g_activity_text);
+    SetTimer(g_main, 1, 1000, 0);
 }
 
 static void refresh_activity(void) {
     LONG count = g_request_count;
     LONG status = g_last_status;
-    if (count <= 0) {
-        SetWindowTextA(g_activity, "Requests: 0 | Last: none");
-    } else {
-        wsprintfA(g_activity_text, "Requests: %ld | Last: %ld %s", count, status, g_last_path);
-        SetWindowTextA(g_activity, g_activity_text);
-    }
+    LONG bytes = g_bytes_served;
+    DWORD up = g_started_tick ? (GetTickCount() - g_started_tick) / 1000 : 0;
+    DWORD h = up / 3600;
+    DWORD m = (up / 60) % 60;
+    DWORD s = up % 60;
+    wsprintfA(g_activity_text, "Req: %ld | Last: %ld %s | Bytes: %ld | Up: %02lu:%02lu:%02lu", count, status, g_last_path, bytes, h, m, s);
+    SetWindowTextA(g_activity, g_activity_text);
 }
 
 static void append(char *dst, int *pos, const char *src) {
@@ -137,9 +143,10 @@ static void copy_url_token(const char *url) {
     }
 }
 
-static void note_request(int status) {
+static void note_request(int status, DWORD bytes) {
     InterlockedIncrement((LONG *)&g_request_count);
     InterlockedExchange((LONG *)&g_last_status, status);
+    if (bytes) InterlockedExchangeAdd((LONG *)&g_bytes_served, (LONG)bytes);
     PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
 
@@ -281,7 +288,7 @@ static void handle_client(SOCKET client) {
         static const unsigned char msg[] = "Method Not Allowed\n";
         send_response(client, 405, "Method Not Allowed", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
         lstrcpyA(g_last_path, "(method)");
-        note_request(405);
+        note_request(405, 0);
         closesocket(client);
         return;
     } else {
@@ -293,7 +300,7 @@ static void handle_client(SOCKET client) {
     if (!make_path(url)) {
         static const unsigned char msg[] = "Forbidden\n";
         send_response(client, 403, "Forbidden", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(403);
+        note_request(403, 0);
         closesocket(client);
         return;
     }
@@ -302,7 +309,7 @@ static void handle_client(SOCKET client) {
     if (file == INVALID_HANDLE_VALUE) {
         static const unsigned char msg[] = "Not Found\n";
         send_response(client, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(404);
+        note_request(404, 0);
         closesocket(client);
         return;
     }
@@ -312,7 +319,7 @@ static void handle_client(SOCKET client) {
         static const unsigned char msg[] = "File Too Large\n";
         CloseHandle(file);
         send_response(client, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(500);
+        note_request(500, 0);
         closesocket(client);
         return;
     }
@@ -321,14 +328,14 @@ static void handle_client(SOCKET client) {
         static const unsigned char msg[] = "Read Error\n";
         CloseHandle(file);
         send_response(client, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
-        note_request(500);
+        note_request(500, 0);
         closesocket(client);
         return;
     }
 
     CloseHandle(file);
     send_response(client, 200, "OK", type_for(g_path), g_file, size_low, head_only);
-    note_request(200);
+    note_request(200, head_only ? 0 : size_low);
     closesocket(client);
 }
 
@@ -363,6 +370,7 @@ static DWORD WINAPI server_thread(LPVOID unused) {
     }
 
     InterlockedExchange(&g_running, 1);
+    g_started_tick = GetTickCount();
     PostMessageA(g_main, WM_APP + 2, 0, 0);
 
     while (g_running) {
@@ -396,6 +404,8 @@ static void start_server(void) {
     g_port = port;
     InterlockedExchange((LONG *)&g_request_count, 0);
     InterlockedExchange((LONG *)&g_last_status, 0);
+    InterlockedExchange((LONG *)&g_bytes_served, 0);
+    g_started_tick = 0;
     lstrcpyA(g_last_path, "");
     refresh_activity();
 
@@ -412,7 +422,9 @@ static void start_server(void) {
     g_thread = CreateThread(0, 0, server_thread, 0, 0, 0);
     if (!g_thread) {
         set_status("Could not start server thread.");
+        SetWindowTextA(g_main, "PortBlaster - Start failed");
     } else {
+        SetWindowTextA(g_main, "PortBlaster - Starting");
         set_status("Starting...");
         CloseHandle(g_thread);
         g_thread = 0;
@@ -424,6 +436,7 @@ static void stop_server(void) {
     if (g_listener != INVALID_SOCKET) {
         closesocket(g_listener);
     }
+    SetWindowTextA(g_main, "PortBlaster - Stopping");
     set_status("Stopping...");
 }
 
@@ -447,7 +460,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);
         g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE, 12, 126, 430, 24, hwnd, (HMENU)ID_STATUS, 0, 0);
-        g_activity = CreateWindowA("STATIC", "Requests: 0 | Last: none", WS_CHILD | WS_VISIBLE, 12, 152, 430, 24, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
+        g_activity = CreateWindowA("STATIC", "Req: 0 | Last: 0 | Bytes: 0 | Up: 00:00:00", WS_CHILD | WS_VISIBLE, 12, 152, 430, 24, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
         set_running_ui(0);
         return 0;
     case WM_COMMAND:
@@ -456,18 +469,26 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 1:
         set_status("Start failed. Port may be in use.");
-        set_running_ui(0);
-        return 0;
+        SetWindowTextA(g_main, "PortBlaster - Start failed");
+        goto not_running;
     case WM_APP + 2:
         set_running_status();
         set_running_ui(1);
         return 0;
     case WM_APP + 3:
         set_status("Stopped.");
+        SetWindowTextA(g_main, "PortBlaster - Stopped");
+not_running:
+        KillTimer(hwnd, 1);
+        g_started_tick = 0;
         set_running_ui(0);
+        refresh_activity();
         return 0;
     case WM_APP + 4:
         refresh_activity();
+        return 0;
+    case WM_TIMER:
+        if (wp == 1) refresh_activity();
         return 0;
     case WM_CLOSE:
         stop_server();
@@ -494,7 +515,7 @@ void WinMainCRTStartup(void) {
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     RegisterClassA(&wc);
 
-    hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster HTTP Server", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+    hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster - Stopped", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 470, 235, 0, 0, inst, 0);
 
     ShowWindow(hwnd, SW_SHOW);
