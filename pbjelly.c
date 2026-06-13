@@ -359,6 +359,27 @@ static void probe_dir_listing(int expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_range(int expect) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code = request_raw("GET /style.css HTTP/1.1\r\nHost: x\r\nRange: bytes=0-3\r\nConnection: close\r\n\r\n", &ms, &bytes);
+    int ok = code == expect;
+    if (expect == 206) ok = ok && has_text(g_recv, "Content-Range: bytes 0-3/");
+    out(ok ? "PASS range_valid -> " : "FAIL range_valid -> ");
+    print_u32((DWORD)code);
+    out("\r\n");
+    report_row("range_valid", (DWORD)expect, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+
+    code = request_raw("GET /style.css HTTP/1.1\r\nHost: x\r\nRange: bytes=999999-1000000\r\nConnection: close\r\n\r\n", &ms, &bytes);
+    ok = code == (expect == 206 ? 416 : 200);
+    out(ok ? "PASS range_invalid -> " : "FAIL range_invalid -> ");
+    print_u32((DWORD)code);
+    out("\r\n");
+    report_row("range_invalid", expect == 206 ? 416 : 200, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void probe_access_log(const char *path, int expect) {
     HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     DWORD n = 0;
@@ -442,6 +463,7 @@ int main(int argc, char **argv) {
     DWORD status_expect = 0;
     DWORD access_log_expect = 0;
     DWORD dir_expect = 0;
+    DWORD range_expect = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -497,6 +519,9 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+    if (argc > 11) {
+        range_expect = parse_u32(argv[11]);
+    }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
     out("pbjelly target=");
@@ -550,6 +575,9 @@ int main(int argc, char **argv) {
     }
     if (dir_expect) {
         probe_dir_listing((int)dir_expect);
+    }
+    if (range_expect) {
+        probe_range((int)range_expect);
     }
     load("/", 100);
     if (argc > 8) {

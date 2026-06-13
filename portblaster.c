@@ -30,6 +30,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_RANGE
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_RANGE 1
+#else
+#define PB_FEAT_RANGE 0
+#endif
+#endif
+
 #ifndef PB_FEAT_MIME_PLUS
 #if PB_TARGET_KB >= 50
 #define PB_FEAT_MIME_PLUS 1
@@ -337,6 +345,17 @@ static int token_equals(const char *s, const char *token) {
     return *s == ' ' || *s == '?' || *s == 0 || *s == '\r' || *s == '\n';
 }
 
+static const char *find_text(const char *s, const char *needle) {
+    const char *p;
+    while (*s) {
+        p = needle;
+        while (*p && s[p - needle] == *p) p++;
+        if (!*p) return s;
+        s++;
+    }
+    return 0;
+}
+
 #if PB_FEAT_JELLY
 static int contains(const char *s, const char *needle) {
     const char *p;
@@ -539,6 +558,67 @@ static void send_response(SOCKET client, int status, const char *reason, const c
     }
 }
 
+#if PB_FEAT_RANGE
+static int parse_range(DWORD file_len, DWORD *start, DWORD *end) {
+    const char *p = find_text(g_request, "\r\nRange: bytes=");
+    DWORD a = 0;
+    DWORD b = 0;
+    int has_b = 0;
+    if (!p) return 0;
+    p += 15;
+    if (*p < '0' || *p > '9') return -1;
+    while (*p >= '0' && *p <= '9') {
+        a = a * 10 + (DWORD)(*p++ - '0');
+    }
+    if (*p++ != '-') return -1;
+    while (*p >= '0' && *p <= '9') {
+        has_b = 1;
+        b = b * 10 + (DWORD)(*p++ - '0');
+    }
+    if ((p[0] != '\r' && p[0] != '\n') || a >= file_len) return -1;
+    if (!has_b || b >= file_len) b = file_len - 1;
+    if (b < a) return -1;
+    *start = a;
+    *end = b;
+    return 1;
+}
+
+static void send_range_bad(SOCKET client, DWORD file_len) {
+    int p = 0;
+    append(g_header, &p, "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */");
+    append_u32(g_header, &p, file_len);
+    append(g_header, &p, "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    send_all(client, g_header, (DWORD)p);
+}
+
+static int send_file_range(SOCKET client, HANDLE file, DWORD file_len, DWORD start, DWORD end, const char *type, int head_only) {
+    int p = 0;
+    DWORD left = end - start + 1;
+    DWORD read_count;
+    SetFilePointer(file, (LONG)start, 0, FILE_BEGIN);
+    append(g_header, &p, "HTTP/1.1 206 Partial Content\r\nContent-Type: ");
+    append(g_header, &p, type);
+    append(g_header, &p, "\r\nContent-Range: bytes ");
+    append_u32(g_header, &p, start);
+    append(g_header, &p, "-");
+    append_u32(g_header, &p, end);
+    append(g_header, &p, "/");
+    append_u32(g_header, &p, file_len);
+    append(g_header, &p, "\r\nContent-Length: ");
+    append_u32(g_header, &p, left);
+    append(g_header, &p, "\r\nConnection: close\r\n\r\n");
+    send_all(client, g_header, (DWORD)p);
+    if (head_only) return 1;
+    while (left) {
+        DWORD want = left > STREAM_CHUNK ? STREAM_CHUNK : left;
+        if (!ReadFile(file, g_chunk, want, &read_count, 0) || read_count == 0) return 0;
+        send_all(client, (const char *)g_chunk, read_count);
+        left -= read_count;
+    }
+    return 1;
+}
+#endif
+
 #if PB_FEAT_DIR_LIST
 static void append_html_name(char *dst, int *pos, const char *src) {
     while (*src && *pos < HEADER_MAX - 1) {
@@ -715,6 +795,32 @@ static void handle_client(SOCKET client) {
         return;
     }
 
+    {
+#if PB_FEAT_RANGE
+        DWORD range_start = 0;
+        DWORD range_end = 0;
+        int range = parse_range(size_low, &range_start, &range_end);
+        if (range < 0) {
+            send_range_bad(client, size_low);
+            CloseHandle(file);
+            note_request(416, 0);
+            closesocket(client);
+            return;
+        }
+        if (range > 0) {
+            if (!send_file_range(client, file, size_low, range_start, range_end, type_for(g_path), head_only)) {
+                CloseHandle(file);
+                note_request(500, 0);
+                closesocket(client);
+                return;
+            }
+            CloseHandle(file);
+            note_request(206, head_only ? 0 : range_end - range_start + 1);
+            closesocket(client);
+            return;
+        }
+#endif
+    }
     if (!send_file_response(client, file, size_low, type_for(g_path), head_only)) {
         CloseHandle(file);
         note_request(500, 0);

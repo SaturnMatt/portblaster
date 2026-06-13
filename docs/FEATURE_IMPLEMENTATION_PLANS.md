@@ -275,6 +275,8 @@ Acceptance:
 
 ## 12. HTTP Range Requests
 
+Status: Complete
+
 Build fit: `pb100`, later
 
 Goal:
@@ -292,8 +294,8 @@ Safety notes:
 - Do not let ranges bypass root/file checks.
 
 Acceptance:
-- Valid range returns expected byte count.
-- Invalid range returns `416`.
+- `pbjelly` validates that `pb100` returns `206 Partial Content` for a valid single byte range.
+- `pbjelly` validates that invalid ranges return `416`.
 - Normal full-file requests remain unchanged.
 
 ## 13. IPv4 All-Interfaces Bind
