@@ -145,8 +145,11 @@ static void report_end(void) {
 static SOCKET connect_target(void) {
     SOCKET s;
     struct sockaddr_in a;
+    DWORD timeout = 3000;
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) return INVALID_SOCKET;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
     a.sin_family = AF_INET;
     a.sin_port = htons(g_port);
     a.sin_addr.s_addr = inet_addr(g_host);
@@ -261,7 +264,7 @@ int main(int argc, char **argv) {
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
-    out("pbcheck target=");
+    out("pbprobe target=");
     out(g_host);
     out(":");
     print_u32(g_port);

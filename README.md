@@ -26,15 +26,18 @@ Tiny Win32 GUI wrapper around the barebones C HTTP server.
 
 The build script creates:
 
-- `build\portblaster.exe` - smallest release build.
-- `build\portblaster-check.exe` - validation/debug-friendly build.
-- `build\portblaster-check.pdb` - debug symbols for the validation build.
-- `build\pbcheck.exe` - local safety and performance check utility.
+- `build\pb20.exe` - 20 KB target release build.
+- `build\pb50.exe` - 50 KB target release build.
+- `build\pb100.exe` - 100 KB target release build.
+- `build\pbcheck\pb20.exe` - validation build for `pb20.exe`.
+- `build\pbcheck\pb50.exe` - validation build for `pb50.exe`.
+- `build\pbcheck\pb100.exe` - validation build for `pb100.exe`.
+- `build\pbcheck\pbprobe.exe` - local safety and performance probe utility.
 
 ## Run
 
 ```powershell
-.\build\portblaster.exe
+.\build\pb20.exe
 ```
 
 Default URL:
@@ -48,20 +51,21 @@ http://127.0.0.1:8083/
 Start PortBlaster, then run:
 
 ```powershell
-.\build\pbcheck.exe 127.0.0.1 8083
+.\build\pbcheck\pbprobe.exe 127.0.0.1 8083
 ```
 
-`pbcheck` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
+`pbprobe` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
 Add a third argument to write an HTML report that PortBlaster can serve:
 
 ```powershell
-.\build\pbcheck.exe 127.0.0.1 8083 build\public\probe-report.html
+.\build\pbcheck\pbprobe.exe 127.0.0.1 8083 build\public\probe-report.html
 ```
 
 For automated local validation, the check build has a test hook:
 
 ```powershell
-.\build\portblaster-check.exe --start
+.\build\pbcheck\pb20.exe --start
 ```
 
-That starts the GUI and automatically presses Start. The size-optimized `portblaster.exe` does not use this hook.
+That starts the GUI and automatically presses Start. The release builds do not use this hook.
+When testing a validation build from `build\pbcheck`, write reports under `build\pbcheck\public` so that validation server can serve them.

@@ -10,14 +10,15 @@
   <main>
     <nav><a href="/">home</a> <a href="/about.html">about</a> <a href="/how.html">how</a> <a href="/safety.html">safety</a></nav>
     <h1>Builds</h1>
-    <p>The project keeps two useful binaries:</p>
+    <p>The project keeps three release targets and a separate validation folder:</p>
     <ul>
-      <li><code>portblaster.exe</code>: smallest release build.</li>
-      <li><code>portblaster-check.exe</code>: debug-friendly build for validation and analysis.</li>
-      <li><code>pbcheck.exe</code>: separate safety and performance check utility.</li>
+      <li><code>pb20.exe</code>: 20 KB target release build.</li>
+      <li><code>pb50.exe</code>: 50 KB target release build.</li>
+      <li><code>pb100.exe</code>: 100 KB target release build.</li>
+      <li><code>pbcheck\</code>: validation builds and <code>pbprobe.exe</code>.</li>
     </ul>
     <p>The probe checks normal pages, rejected paths, malformed request lines, unsupported methods, and repeated request latency.</p>
-    <p>The check build accepts <code>--start</code> for automated local validation. The tiny release build stays manual.</p>
+    <p>The validation builds accept <code>--start</code> for automated local testing. The release builds stay manual and size-focused.</p>
   </main>
 </body>
 </html>
