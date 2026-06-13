@@ -71,6 +71,8 @@ Start PortBlaster, then run:
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083
 ```
 
+Launching `pbjelly.exe` without arguments opens the Win32 attack tester GUI. It can start `pbj20`, `pbj50`, or `pbj100`, run the current suite, stream results, and open `jelly-report.html`.
+
 `pbjelly` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals. Its CLI and HTML report label HTTP probes as served, blocked, or unexpected so defense behavior is visible while testing.
 Add a third argument to write an HTML report that PortBlaster can serve:
 

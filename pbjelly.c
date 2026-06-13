@@ -3,10 +3,18 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <iphlpapi.h>
+#include <shellapi.h>
 
 #define RECV_MAX 8192
 #define REQ_MAX 1024
 #define BIG_SIZE 1200000
+#define ID_TARGET 101
+#define ID_START_TARGET 102
+#define ID_RUN_SAFETY 103
+#define ID_RUN_LOAD 104
+#define ID_RUN_ALL 105
+#define ID_OPEN_REPORT 106
+#define ID_OUTPUT 107
 
 static char g_recv[RECV_MAX];
 static char g_req[REQ_MAX];
@@ -19,6 +27,9 @@ static char g_report_dir[MAX_PATH];
 static DWORD g_defense_blocked = 0;
 static DWORD g_defense_served = 0;
 static DWORD g_defense_unexpected = 0;
+static HWND g_gui_output;
+static HWND g_gui_target;
+static PROCESS_INFORMATION g_target_proc;
 
 static int same(const char *a, const char *b) {
     while (*a && *b && *a == *b) {
@@ -80,6 +91,15 @@ static void print_u32(DWORD v) {
 static void out(const char *s) {
     DWORD n;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), s, lstrlenA(s), &n, 0);
+}
+
+static void gui_append(const char *s) {
+    int len;
+    if (!g_gui_output) return;
+    len = GetWindowTextLengthA(g_gui_output);
+    SendMessageA(g_gui_output, EM_SETSEL, len, len);
+    SendMessageA(g_gui_output, EM_REPLACESEL, 0, (LPARAM)s);
+    SendMessageA(g_gui_output, EM_SCROLLCARET, 0, 0);
 }
 
 static const char *defense_word(DWORD expect, DWORD got) {
@@ -605,6 +625,182 @@ static void load(const char *path, DWORD count) {
     if (ok != count) g_fail++;
 }
 
+static void exe_dir(char *dst) {
+    DWORD n = GetModuleFileNameA(0, dst, MAX_PATH);
+    while (n > 0 && dst[n - 1] != '\\' && dst[n - 1] != '/') n--;
+    dst[n] = 0;
+}
+
+static int gui_target_index(void) {
+    LRESULT n = SendMessageA(g_gui_target, CB_GETCURSEL, 0, 0);
+    return n < 0 ? 0 : (int)n;
+}
+
+static void gui_paths(char *exe, char *report, char *log) {
+    char dir[MAX_PATH];
+    exe_dir(dir);
+    lstrcpyA(exe, dir);
+    lstrcpyA(report, dir);
+    lstrcpyA(log, dir);
+    lstrcatA(report, "public\\jelly-report.html");
+    lstrcatA(log, "portblaster.log");
+}
+
+static void gui_start_target(void) {
+    STARTUPINFOA si;
+    char exe[MAX_PATH], report[MAX_PATH], log[MAX_PATH];
+    char cmd[MAX_PATH + 16];
+    int t = gui_target_index();
+    if (g_target_proc.hProcess) {
+        gui_append("target already running\r\n");
+        return;
+    }
+    gui_paths(exe, report, log);
+    lstrcatA(exe, t == 0 ? "pbj20.exe" : (t == 1 ? "pbj50.exe" : "pbj100.exe"));
+    wsprintfA(cmd, "\"%s\" --start", exe);
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&g_target_proc, sizeof(g_target_proc));
+    si.cb = sizeof(si);
+    if (CreateProcessA(0, cmd, 0, 0, FALSE, CREATE_NO_WINDOW, 0, 0, &si, &g_target_proc)) {
+        gui_append("started target\r\n");
+        CloseHandle(g_target_proc.hThread);
+        Sleep(1000);
+    } else {
+        gui_append("could not start target\r\n");
+    }
+}
+
+static void gui_stop_target(void) {
+    if (g_target_proc.hProcess) {
+        TerminateProcess(g_target_proc.hProcess, 0);
+        CloseHandle(g_target_proc.hProcess);
+        g_target_proc.hProcess = 0;
+        gui_append("stopped target\r\n");
+    }
+}
+
+static void gui_run_suite(const char *label) {
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    SECURITY_ATTRIBUTES sa;
+    HANDLE rd = 0, wr = 0;
+    char exe[MAX_PATH], report[MAX_PATH], log[MAX_PATH];
+    char cmd[1024];
+    char buf[256];
+    DWORD n;
+    int t = gui_target_index();
+
+    gui_start_target();
+    gui_paths(exe, report, log);
+    lstrcatA(exe, "pbjelly.exe");
+    if (t == 0) {
+        wsprintfA(cmd, "\"%s\" 127.0.0.1 8083 \"%s\" 413 0 0 404 \"%s\" 0 404 200 0 0", exe, report, log);
+    } else if (t == 1) {
+        wsprintfA(cmd, "\"%s\" 127.0.0.1 8083 \"%s\" 413 1 0 404 \"%s\" 0 404 200 0 0", exe, report, log);
+    } else {
+        wsprintfA(cmd, "\"%s\" 127.0.0.1 8083 \"%s\" 200 1 1 200 \"%s\" 1 404 206 0 2", exe, report, log);
+    }
+
+    gui_append("\r\n== ");
+    gui_append(label);
+    gui_append(" ==\r\n");
+
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&pi, sizeof(pi));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = wr;
+    si.hStdError = wr;
+    if (CreateProcessA(0, cmd, 0, 0, TRUE, CREATE_NO_WINDOW, 0, 0, &si, &pi)) {
+        CloseHandle(wr);
+        wr = 0;
+        while (ReadFile(rd, buf, sizeof(buf) - 1, &n, 0) && n) {
+            buf[n] = 0;
+            gui_append(buf);
+        }
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        gui_append("could not run suite\r\n");
+    }
+    if (wr) CloseHandle(wr);
+    CloseHandle(rd);
+}
+
+static void gui_open_report(void) {
+    char exe[MAX_PATH], report[MAX_PATH], log[MAX_PATH];
+    gui_paths(exe, report, log);
+    ShellExecuteA(0, "open", report, 0, 0, SW_SHOWNORMAL);
+}
+
+static LRESULT CALLBACK gui_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    (void)lp;
+    switch (msg) {
+    case WM_CREATE:
+        CreateWindowA("STATIC", "Target", WS_CHILD | WS_VISIBLE, 12, 14, 50, 22, hwnd, 0, 0, 0);
+        g_gui_target = CreateWindowA("COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 66, 12, 100, 120, hwnd, (HMENU)ID_TARGET, 0, 0);
+        SendMessageA(g_gui_target, CB_ADDSTRING, 0, (LPARAM)"pbj20");
+        SendMessageA(g_gui_target, CB_ADDSTRING, 0, (LPARAM)"pbj50");
+        SendMessageA(g_gui_target, CB_ADDSTRING, 0, (LPARAM)"pbj100");
+        SendMessageA(g_gui_target, CB_SETCURSEL, 2, 0);
+        CreateWindowA("BUTTON", "Start Target", WS_CHILD | WS_VISIBLE, 180, 10, 100, 26, hwnd, (HMENU)ID_START_TARGET, 0, 0);
+        CreateWindowA("BUTTON", "Run Safety", WS_CHILD | WS_VISIBLE, 12, 48, 90, 28, hwnd, (HMENU)ID_RUN_SAFETY, 0, 0);
+        CreateWindowA("BUTTON", "Run Load", WS_CHILD | WS_VISIBLE, 112, 48, 90, 28, hwnd, (HMENU)ID_RUN_LOAD, 0, 0);
+        CreateWindowA("BUTTON", "Run All", WS_CHILD | WS_VISIBLE, 212, 48, 90, 28, hwnd, (HMENU)ID_RUN_ALL, 0, 0);
+        CreateWindowA("BUTTON", "Open Report", WS_CHILD | WS_VISIBLE, 312, 48, 100, 28, hwnd, (HMENU)ID_OPEN_REPORT, 0, 0);
+        g_gui_output = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "pbjelly cockpit ready\r\n", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 88, 660, 360, hwnd, (HMENU)ID_OUTPUT, 0, 0);
+        return 0;
+    case WM_COMMAND:
+        if (LOWORD(wp) == ID_START_TARGET) gui_start_target();
+        if (LOWORD(wp) == ID_RUN_SAFETY) gui_run_suite("safety");
+        if (LOWORD(wp) == ID_RUN_LOAD) gui_run_suite("load");
+        if (LOWORD(wp) == ID_RUN_ALL) gui_run_suite("all");
+        if (LOWORD(wp) == ID_OPEN_REPORT) gui_open_report();
+        return 0;
+    case WM_CLOSE:
+        gui_stop_target();
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+static int gui_main(int smoke) {
+    WNDCLASSA wc;
+    HWND hwnd;
+    MSG msg;
+    HINSTANCE inst = GetModuleHandleA(0);
+    ZeroMemory(&wc, sizeof(wc));
+    wc.lpfnWndProc = gui_proc;
+    wc.hInstance = inst;
+    wc.lpszClassName = "pbjelly_window";
+    wc.hCursor = LoadCursorA(0, (LPCSTR)32512);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    RegisterClassA(&wc);
+    hwnd = CreateWindowExA(0, "pbjelly_window", "pbjelly attack tester", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        CW_USEDEFAULT, CW_USEDEFAULT, 700, 500, 0, 0, inst, 0);
+    if (smoke) {
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
+    while (GetMessageA(&msg, 0, 0, 0) > 0) {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     WSADATA wsa;
     DWORD ms;
@@ -619,6 +815,9 @@ int main(int argc, char **argv) {
     DWORD bind_expect = 2;
     DWORD threads_check = 0;
     int code;
+
+    if (argc == 1) return gui_main(0);
+    if (argc > 1 && same(argv[1], "--gui-smoke")) return gui_main(1);
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
     if (argc > 2) {

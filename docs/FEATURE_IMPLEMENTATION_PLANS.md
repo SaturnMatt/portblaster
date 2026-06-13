@@ -382,6 +382,8 @@ Acceptance:
 
 ## 16. GUI Attack Tester
 
+Status: Complete
+
 Build fit: `pbjelly`, not server builds
 
 Goal:
@@ -403,6 +405,7 @@ Safety notes:
 Acceptance:
 - GUI can start a target and run the current suite.
 - CLI mode continues to pass automated validation.
+- `pbjelly --gui-smoke` creates and closes the GUI for automated build validation.
 
 ## 17. Real-Time Defense Reactions
 

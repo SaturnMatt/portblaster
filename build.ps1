@@ -90,7 +90,7 @@ try {
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbjelly.c /Fe:build\pbjelly\pbjelly.exe /link user32.lib ws2_32.lib iphlpapi.lib"
+    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbjelly.c /Fe:build\pbjelly\pbjelly.exe /link user32.lib ws2_32.lib iphlpapi.lib shell32.lib"
 }
 finally {
     Pop-Location
