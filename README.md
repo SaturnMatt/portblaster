@@ -39,7 +39,7 @@ The three release builds come from the same `portblaster.c` source with compile-
 - `pb20.exe` - safety-first minimum build.
 - `pb50.exe` - adds request log, uptime, bytes served, and title state.
 - `pb100.exe` - adds chunked streaming for larger files.
-- `pb100.exe` also supports `portblaster.ini` beside the exe with `port=` and `root=` lines.
+- `pb100.exe` also supports `portblaster.ini` beside the exe with `port=`, `root=`, `dir_list=1`, and explicit `bind=all` lines.
 
 Trial builds can mix features for byte-cost experiments:
 
@@ -80,6 +80,8 @@ Pass extra arguments to validate large-file, MIME, timeout, status endpoint, acc
 ```powershell
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\pbjelly\public\jelly-report.html 200 1 1 200 build\pbjelly\portblaster.log 1 200 206
 ```
+
+Add a final `0` or `1` argument to validate the listener bind mode through the Windows TCP table: `0` expects loopback-only, `1` expects all IPv4 interfaces. `bind=all` is `pb100`-only and must be set explicitly in `portblaster.ini`.
 
 For automated local validation, the check build has a test hook:
 

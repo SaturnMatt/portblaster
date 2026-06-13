@@ -86,6 +86,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_BIND_ALL
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_BIND_ALL 1
+#else
+#define PB_FEAT_BIND_ALL 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -146,6 +154,9 @@ static int g_config_error = 0;
 #if PB_FEAT_DIR_LIST
 static int g_dir_list = 0;
 static char g_dir_body[HEADER_MAX];
+#endif
+#if PB_FEAT_BIND_ALL
+static int g_bind_all = 0;
 #endif
 static unsigned short g_port = 8083;
 
@@ -222,6 +233,10 @@ static void load_config(void) {
         } else if (starts_with(p, "dir_list=1")) {
             g_dir_list = 1;
 #endif
+#if PB_FEAT_BIND_ALL
+        } else if (starts_with(p, "bind=all")) {
+            g_bind_all = 1;
+#endif
         }
         while (*p && *p != '\n') p++;
         if (*p == '\n') p++;
@@ -241,6 +256,11 @@ static void set_access_log_path(void) {
 static void set_running_status(void) {
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
 #if PB_FEAT_METRICS
+#if PB_FEAT_BIND_ALL
+    if (g_bind_all) {
+        wsprintfA(g_activity_text, "PortBlaster - Running all :%u", (unsigned int)g_port);
+    } else
+#endif
     wsprintfA(g_activity_text, "PortBlaster - Running :%u", (unsigned int)g_port);
     SetWindowTextA(g_main, g_activity_text);
     SetTimer(g_main, 1, 1000, 0);
@@ -261,6 +281,11 @@ static void refresh_activity(void) {
     DWORD m = (up / 60) % 60;
     DWORD s = up % 60;
     if (g_running) {
+#if PB_FEAT_BIND_ALL
+        if (g_bind_all) {
+            wsprintfA(g_activity_text, "%s all | Req: %ld | Bytes: %ld | Up: %02lu:%02lu:%02lu", g_url, count, bytes, h, m, s);
+        } else
+#endif
         wsprintfA(g_activity_text, "%s | Req: %ld | Bytes: %ld | Up: %02lu:%02lu:%02lu", g_url, count, bytes, h, m, s);
         set_status(g_activity_text);
     }
@@ -877,7 +902,11 @@ static DWORD WINAPI server_thread(LPVOID unused) {
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(g_port);
+#if PB_FEAT_BIND_ALL
+    addr.sin_addr.s_addr = htonl(g_bind_all ? INADDR_ANY : 0x7f000001);
+#else
     addr.sin_addr.s_addr = htonl(0x7f000001);
+#endif
 
     if (bind(g_listener, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR ||
         listen(g_listener, SOMAXCONN) == SOCKET_ERROR) {

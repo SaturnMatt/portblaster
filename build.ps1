@@ -48,7 +48,8 @@ function Get-FeatureDefines {
         elseif ($name -eq 'ACCESS_LOG') { $defs += '/DPB_FEAT_ACCESS_LOG=1' }
         elseif ($name -eq 'CONFIG') { $defs += '/DPB_FEAT_CONFIG=1' }
         elseif ($name -eq 'DIR_LIST') { $defs += '/DPB_FEAT_DIR_LIST=1' }
-        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST." }
+        elseif ($name -eq 'BIND_ALL') { $defs += '/DPB_FEAT_BIND_ALL=1' }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL." }
     }
     return ($defs -join ' ')
 }
@@ -76,14 +77,14 @@ Push-Location $projectRoot
 try {
     Invoke-ServerBuild 'pb20' 20 @() $false $false
     Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $false $false
-    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL') $false $false
     Invoke-ServerBuild 'pbj20' 20 @() $true $true
     Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $true $true
-    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL') $true $true
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbjelly.c /Fe:build\pbjelly\pbjelly.exe /link user32.lib ws2_32.lib"
+    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbjelly.c /Fe:build\pbjelly\pbjelly.exe /link user32.lib ws2_32.lib iphlpapi.lib"
 }
 finally {
     Pop-Location

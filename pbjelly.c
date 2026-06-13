@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <windows.h>
+#include <iphlpapi.h>
 
 #define RECV_MAX 8192
 #define REQ_MAX 1024
@@ -380,6 +381,40 @@ static void probe_range(int expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_bind(int expect_all) {
+    DWORD size = 0;
+    PMIB_TCPTABLE table;
+    DWORD i;
+    int found_all = 0;
+    int found_loopback = 0;
+    int ok;
+
+    GetTcpTable(0, &size, TRUE);
+    table = (PMIB_TCPTABLE)HeapAlloc(GetProcessHeap(), 0, size);
+    if (!table || GetTcpTable(table, &size, TRUE) != NO_ERROR) {
+        if (table) HeapFree(GetProcessHeap(), 0, table);
+        out("FAIL bind_check -> table\r\n");
+        report_row("bind_check", (DWORD)expect_all, 2, 0, 0);
+        g_fail++;
+        return;
+    }
+
+    for (i = 0; i < table->dwNumEntries; i++) {
+        MIB_TCPROW *row = &table->table[i];
+        if (row->dwState == MIB_TCP_STATE_LISTEN && row->dwLocalPort == (DWORD)htons(g_port)) {
+            if (row->dwLocalAddr == 0) found_all = 1;
+            if (row->dwLocalAddr == inet_addr("127.0.0.1")) found_loopback = 1;
+        }
+    }
+    HeapFree(GetProcessHeap(), 0, table);
+
+    ok = expect_all ? found_all : (found_loopback && !found_all);
+    out(ok ? "PASS bind_check -> " : "FAIL bind_check -> ");
+    out(expect_all ? "all\r\n" : "loopback\r\n");
+    report_row("bind_check", (DWORD)expect_all, (DWORD)(found_all ? 1 : 0), 0, 0);
+    if (!ok) g_fail++;
+}
+
 static void probe_access_log(const char *path, int expect) {
     HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     DWORD n = 0;
@@ -464,6 +499,7 @@ int main(int argc, char **argv) {
     DWORD access_log_expect = 0;
     DWORD dir_expect = 0;
     DWORD range_expect = 0;
+    DWORD bind_expect = 2;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -522,6 +558,9 @@ int main(int argc, char **argv) {
     if (argc > 11) {
         range_expect = parse_u32(argv[11]);
     }
+    if (argc > 12) {
+        bind_expect = parse_u32(argv[12]);
+    }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
     out("pbjelly target=");
@@ -578,6 +617,9 @@ int main(int argc, char **argv) {
     }
     if (range_expect) {
         probe_range((int)range_expect);
+    }
+    if (bind_expect < 2) {
+        probe_bind((int)bind_expect);
     }
     load("/", 100);
     if (argc > 8) {

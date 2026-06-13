@@ -21,9 +21,9 @@
     <ul>
       <li><code>pb20</code>: minimal safe server.</li>
       <li><code>pb50</code>: log and metrics.</li>
-      <li><code>pb100</code>: log, metrics, and streaming file responses.</li>
+      <li><code>pb100</code>: log, metrics, streaming file responses, optional status/config/listing/range checks, and explicit <code>bind=all</code> LAN testing.</li>
     </ul>
-    <p>The jelly utility checks normal pages, rejected paths, malformed request lines, unsupported methods, and repeated request latency.</p>
+    <p>The jelly utility checks normal pages, rejected paths, malformed request lines, unsupported methods, listener bind mode, and repeated request latency.</p>
     <p>The validation builds accept <code>--start</code> for automated local testing. The release builds stay manual and size-focused.</p>
   </main>
 </body>

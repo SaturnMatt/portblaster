@@ -300,6 +300,8 @@ Acceptance:
 
 ## 13. IPv4 All-Interfaces Bind
 
+Status: Complete
+
 Build fit: `pb100`, optional and never default
 
 Goal:
@@ -318,6 +320,7 @@ Safety notes:
 Acceptance:
 - Default bind remains loopback.
 - Opt-in bind listens on all IPv4 interfaces.
+- `pbjelly` checks the Windows TCP listener table for loopback vs all-interface mode.
 
 ## 14. IPv6
 
