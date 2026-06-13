@@ -85,6 +85,8 @@ Acceptance:
 
 ## 4. Larger MIME Table
 
+Status: Complete
+
 Build fit: `pb50`, `pb100`
 
 Goal:
@@ -101,7 +103,7 @@ Safety notes:
 - Default unknown files to `application/octet-stream`.
 
 Acceptance:
-- `pbjelly` or a small manual check confirms representative content types.
+- `pbjelly` confirms representative content types for `.json`, `.webp`, `.wasm`, and `.pdf`.
 - Size delta is recorded for each added extension group.
 
 ## 5. Per-Request Timeout

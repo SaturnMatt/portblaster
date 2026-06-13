@@ -13,6 +13,7 @@ static unsigned short g_port = 8083;
 static int g_fail = 0;
 static HANDLE g_report = INVALID_HANDLE_VALUE;
 static char g_big_path[MAX_PATH];
+static char g_report_dir[MAX_PATH];
 
 static int same(const char *a, const char *b) {
     while (*a && *b && *a == *b) {
@@ -20,6 +21,17 @@ static int same(const char *a, const char *b) {
         b++;
     }
     return *a == 0 && *b == 0;
+}
+
+static int has_text(const char *s, const char *needle) {
+    const char *p;
+    while (*s) {
+        p = needle;
+        while (*p && s[p - needle] == *p) p++;
+        if (!*p) return 1;
+        s++;
+    }
+    return 0;
 }
 
 static unsigned short parse_port(const char *s) {
@@ -152,16 +164,40 @@ static void report_end(void) {
     g_report = INVALID_HANDLE_VALUE;
 }
 
-static int make_big_file(const char *report_path) {
+static int set_report_dir(const char *report_path) {
+    int i = lstrlenA(report_path);
+    while (i > 0 && report_path[i - 1] != '\\' && report_path[i - 1] != '/') i--;
+    if (i <= 0 || i >= (int)sizeof(g_report_dir)) return 0;
+    lstrcpynA(g_report_dir, report_path, i + 1);
+    return 1;
+}
+
+static int write_named_file(const char *name, const char *body) {
+    char path[MAX_PATH];
+    DWORD wrote;
+    HANDLE f;
+    if (!g_report_dir[0]) return 0;
+    if (lstrlenA(g_report_dir) + lstrlenA(name) >= (int)sizeof(path)) return 0;
+    lstrcpyA(path, g_report_dir);
+    lstrcatA(path, name);
+    f = CreateFileA(path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    if (!WriteFile(f, body, lstrlenA(body), &wrote, 0) || wrote != (DWORD)lstrlenA(body)) {
+        CloseHandle(f);
+        return 0;
+    }
+    CloseHandle(f);
+    return 1;
+}
+
+static int make_big_file(void) {
     char zeros[4096];
     DWORD wrote;
     DWORD left = BIG_SIZE;
     DWORD n;
     HANDLE f;
-    int i = lstrlenA(report_path);
-    while (i > 0 && report_path[i - 1] != '\\' && report_path[i - 1] != '/') i--;
-    if (i <= 0 || i > (int)sizeof(g_big_path) - 9) return 0;
-    lstrcpynA(g_big_path, report_path, i + 1);
+    if (!g_report_dir[0] || lstrlenA(g_report_dir) > (int)sizeof(g_big_path) - 9) return 0;
+    lstrcpyA(g_big_path, g_report_dir);
     lstrcatA(g_big_path, "big.bin");
     for (n = 0; n < sizeof(zeros); n++) zeros[n] = 0;
     f = CreateFileA(g_big_path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
@@ -245,6 +281,25 @@ static void probe(const char *name, const char *method, const char *path, int ex
     if (code != expect) g_fail++;
 }
 
+static void probe_mime(const char *name, const char *path, const char *expect) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok;
+    make_req("GET", path);
+    code = request_raw(g_req, &ms, &bytes);
+    ok = code == 200 && has_text(g_recv, expect);
+    out(ok ? "PASS " : "FAIL ");
+    out(name);
+    out(" mime -> ");
+    print_u32((DWORD)code);
+    out(" ");
+    out(expect);
+    out("\r\n");
+    report_row(name, 200, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void load(const char *path, DWORD count) {
     DWORD i;
     DWORD total = 0;
@@ -282,6 +337,7 @@ int main(int argc, char **argv) {
     DWORD ms;
     DWORD bytes;
     DWORD big_expect = 0;
+    DWORD mime_plus = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -298,11 +354,26 @@ int main(int argc, char **argv) {
             out("could not write report\r\n");
             return 2;
         }
+        if (!set_report_dir(argv[3])) {
+            out("could not use report dir\r\n");
+            return 2;
+        }
     }
     if (argc > 4) {
         big_expect = parse_u32(argv[4]);
-        if (!big_expect || !make_big_file(argv[3])) {
+        if (!big_expect || !make_big_file()) {
             out("could not prepare big file\r\n");
+            return 2;
+        }
+    }
+    if (argc > 5) {
+        mime_plus = parse_u32(argv[5]);
+        if (mime_plus &&
+            (!write_named_file("mime.json", "{}") ||
+             !write_named_file("mime.webp", "webp") ||
+             !write_named_file("mime.wasm", "wasm") ||
+             !write_named_file("mime.pdf", "%PDF-1.0\n"))) {
+            out("could not prepare mime files\r\n");
             return 2;
         }
     }
@@ -344,6 +415,12 @@ int main(int argc, char **argv) {
     if (code != 200) g_fail++;
     if (big_expect) {
         probe("large_file", "GET", "/big.bin", (int)big_expect);
+    }
+    if (mime_plus) {
+        probe_mime("json", "/mime.json", "Content-Type: application/json");
+        probe_mime("webp", "/mime.webp", "Content-Type: image/webp");
+        probe_mime("wasm", "/mime.wasm", "Content-Type: application/wasm");
+        probe_mime("pdf", "/mime.pdf", "Content-Type: application/pdf");
     }
     load("/", 100);
 

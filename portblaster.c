@@ -30,6 +30,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_MIME_PLUS
+#if PB_TARGET_KB >= 50
+#define PB_FEAT_MIME_PLUS 1
+#else
+#define PB_FEAT_MIME_PLUS 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -221,6 +229,13 @@ static const char *type_for(const char *path) {
     if (ends_with(path, ".svg")) return "image/svg+xml";
     if (ends_with(path, ".ico")) return "image/x-icon";
     if (ends_with(path, ".txt")) return "text/plain; charset=utf-8";
+#if PB_FEAT_MIME_PLUS
+    if (ends_with(path, ".json") || ends_with(path, ".map")) return "application/json; charset=utf-8";
+    if (ends_with(path, ".webp")) return "image/webp";
+    if (ends_with(path, ".wasm")) return "application/wasm";
+    if (ends_with(path, ".mjs")) return "application/javascript; charset=utf-8";
+    if (ends_with(path, ".pdf")) return "application/pdf";
+#endif
     return "application/octet-stream";
 }
 

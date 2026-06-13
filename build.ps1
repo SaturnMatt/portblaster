@@ -41,7 +41,8 @@ function Get-FeatureDefines {
         if ($name -eq 'LOG') { $defs += '/DPB_FEAT_LOG=1' }
         elseif ($name -eq 'METRICS') { $defs += '/DPB_FEAT_METRICS=1' }
         elseif ($name -eq 'STREAM') { $defs += '/DPB_FEAT_STREAM=1' }
-        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM." }
+        elseif ($name -eq 'MIME_PLUS') { $defs += '/DPB_FEAT_MIME_PLUS=1' }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, MIME_PLUS." }
     }
     return ($defs -join ' ')
 }
@@ -68,11 +69,11 @@ function Invoke-ServerBuild {
 Push-Location $projectRoot
 try {
     Invoke-ServerBuild 'pb20' 20 @() $false $false
-    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS') $false $false
-    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM') $false $false
+    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'MIME_PLUS') $false $false
     Invoke-ServerBuild 'pbj20' 20 @() $true $true
-    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS') $true $true
-    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM') $true $true
+    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'MIME_PLUS') $true $true
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }
