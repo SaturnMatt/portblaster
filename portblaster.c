@@ -62,6 +62,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_CONFIG
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_CONFIG 1
+#else
+#define PB_FEAT_CONFIG 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -115,6 +123,10 @@ static char g_last_path[128];
 #if PB_FEAT_ACCESS_LOG
 static char g_access_log_path[PATH_MAX_LOCAL];
 #endif
+#if PB_FEAT_CONFIG
+static char g_config[512];
+static int g_config_error = 0;
+#endif
 static unsigned short g_port = 8083;
 
 static char g_request[REQ_MAX];
@@ -130,6 +142,8 @@ static unsigned char g_file[FILE_MAX];
 #endif
 
 static void refresh_activity(void);
+static int starts_with(const char *s, const char *prefix);
+static unsigned short parse_port(const char *s);
 
 static void zero_bytes(void *ptr, DWORD size) {
     volatile unsigned char *p = (volatile unsigned char *)ptr;
@@ -146,6 +160,50 @@ static void set_default_root(void) {
     g_root[n] = 0;
     lstrcatA(g_root, "public");
 }
+
+#if PB_FEAT_CONFIG
+static void copy_line_value(char *dst, int dst_len, const char *src) {
+    int p = 0;
+    while (*src && *src != '\r' && *src != '\n' && p < dst_len - 1) {
+        dst[p++] = *src++;
+    }
+    dst[p] = 0;
+}
+
+static void load_config(void) {
+    char path[PATH_MAX_LOCAL];
+    HANDLE f;
+    DWORD n;
+    char *p;
+    DWORD len = GetModuleFileNameA(0, path, sizeof(path) - 17);
+    while (len > 0 && path[len - 1] != '\\' && path[len - 1] != '/') len--;
+    path[len] = 0;
+    lstrcatA(path, "portblaster.ini");
+    f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    if (f == INVALID_HANDLE_VALUE) return;
+    if (!ReadFile(f, g_config, sizeof(g_config) - 1, &n, 0)) n = 0;
+    CloseHandle(f);
+    g_config[n] = 0;
+    p = g_config;
+    while (*p) {
+        if (starts_with(p, "port=")) {
+            char tmp[16];
+            unsigned short port;
+            copy_line_value(tmp, sizeof(tmp), p + 5);
+            port = parse_port(tmp);
+            if (port) {
+                g_port = port;
+            } else {
+                g_config_error = 1;
+            }
+        } else if (starts_with(p, "root=")) {
+            copy_line_value(g_root, sizeof(g_root), p + 5);
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
+    }
+}
+#endif
 
 #if PB_FEAT_ACCESS_LOG
 static void set_access_log_path(void) {
@@ -678,6 +736,13 @@ static void start_server(void) {
 
     if (g_running) return;
 
+#if PB_FEAT_CONFIG
+    if (g_config_error) {
+        set_status("Invalid config.");
+        return;
+    }
+#endif
+
     GetWindowTextA(g_port_edit, port_text, sizeof(port_text));
     port = parse_port(port_text);
     if (!port) {
@@ -752,11 +817,17 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     (void)lp;
     switch (msg) {
     case WM_CREATE:
+    {
+        char port_text[16];
         g_main = hwnd;
-        CreateWindowA("STATIC", "Port", WS_CHILD | WS_VISIBLE, 12, 14, 60, 22, hwnd, 0, 0, 0);
-        g_port_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "8083", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 12, 80, 24, hwnd, (HMENU)ID_PORT, 0, 0);
-        CreateWindowA("STATIC", "Root", WS_CHILD | WS_VISIBLE, 12, 48, 60, 22, hwnd, 0, 0, 0);
         set_default_root();
+#if PB_FEAT_CONFIG
+        load_config();
+#endif
+        wsprintfA(port_text, "%u", (unsigned int)g_port);
+        CreateWindowA("STATIC", "Port", WS_CHILD | WS_VISIBLE, 12, 14, 60, 22, hwnd, 0, 0, 0);
+        g_port_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", port_text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 12, 80, 24, hwnd, (HMENU)ID_PORT, 0, 0);
+        CreateWindowA("STATIC", "Root", WS_CHILD | WS_VISIBLE, 12, 48, 60, 22, hwnd, 0, 0, 0);
 #if PB_FEAT_ACCESS_LOG
         set_access_log_path();
 #endif
@@ -771,6 +842,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #endif
         set_running_ui(0);
         return 0;
+    }
     case WM_COMMAND:
         if (LOWORD(wp) == ID_START) start_server();
         if (LOWORD(wp) == ID_STOP) stop_server();

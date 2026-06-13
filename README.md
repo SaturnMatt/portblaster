@@ -39,6 +39,7 @@ The three release builds come from the same `portblaster.c` source with compile-
 - `pb20.exe` - safety-first minimum build.
 - `pb50.exe` - adds request log, uptime, bytes served, and title state.
 - `pb100.exe` - adds chunked streaming for larger files.
+- `pb100.exe` also supports `portblaster.ini` beside the exe with `port=` and `root=` lines.
 
 Trial builds can mix features for byte-cost experiments:
 

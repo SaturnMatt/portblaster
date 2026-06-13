@@ -202,6 +202,8 @@ Acceptance:
 
 ## 9. Config File
 
+Status: Complete
+
 Build fit: `pb100`
 
 Goal:
@@ -220,8 +222,8 @@ Safety notes:
 - Do not support environment expansion or includes.
 
 Acceptance:
-- Valid config pre-fills port/root.
-- Invalid port/root shows a clear status and does not start.
+- Valid `portblaster.ini` pre-fills port/root and auto-starts through the jelly build.
+- Invalid `port=` shows a clear status and does not start.
 
 ## 10. Directory Listing
 
