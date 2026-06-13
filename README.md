@@ -11,6 +11,8 @@ Tiny Win32 GUI wrapper around the barebones C HTTP server.
 - Exact running URL in the status line.
 - Request counter.
 - Last request path and status.
+- Scrolling request log.
+- Uptime and bytes-served status.
 - Common static asset MIME types.
 - Static file serving from the selected root.
 - Basic `GET` and `HEAD`.
@@ -27,6 +29,7 @@ The build script creates:
 - `build\portblaster.exe` - smallest release build.
 - `build\portblaster-check.exe` - validation/debug-friendly build.
 - `build\portblaster-check.pdb` - debug symbols for the validation build.
+- `build\pbprobe.exe` - local safety and performance probe utility.
 
 ## Run
 
@@ -39,3 +42,21 @@ Default URL:
 ```text
 http://127.0.0.1:8083/
 ```
+
+## Probe
+
+Start PortBlaster, then run:
+
+```powershell
+.\build\pbprobe.exe 127.0.0.1 8083
+```
+
+`pbprobe` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
+
+For automated local validation, the check build has a test hook:
+
+```powershell
+.\build\portblaster-check.exe --start
+```
+
+That starts the GUI and automatically presses Start. The size-optimized `portblaster.exe` does not use this hook.

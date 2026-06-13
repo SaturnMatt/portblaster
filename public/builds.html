@@ -14,8 +14,10 @@
     <ul>
       <li><code>portblaster.exe</code>: smallest release build.</li>
       <li><code>portblaster-check.exe</code>: debug-friendly build for validation and analysis.</li>
+      <li><code>pbprobe.exe</code>: separate safety and performance probe.</li>
     </ul>
-    <p>A future companion utility can stress test paths, methods, large files, and malformed requests from C.</p>
+    <p>The probe checks normal pages, rejected paths, malformed request lines, unsupported methods, and repeated request latency.</p>
+    <p>The check build accepts <code>--start</code> for automated local validation. The tiny release build stays manual.</p>
   </main>
 </body>
 </html>

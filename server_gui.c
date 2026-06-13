@@ -128,6 +128,19 @@ static int starts_with(const char *s, const char *prefix) {
     return 1;
 }
 
+#ifdef PORTBLASTER_CHECK
+static int contains(const char *s, const char *needle) {
+    const char *p;
+    while (*s) {
+        p = needle;
+        while (*p && s[p - needle] == *p) p++;
+        if (!*p) return 1;
+        s++;
+    }
+    return 0;
+}
+#endif
+
 static int ends_with(const char *s, const char *suffix) {
     int sl = lstrlenA(s);
     int tl = lstrlenA(suffix);
@@ -190,6 +203,13 @@ static int bad_path(const char *s) {
         s++;
     }
     return 0;
+}
+
+static int good_request_line(const char *s) {
+    while (*s && *s != ' ' && *s != '\r' && *s != '\n') s++;
+    if (*s++ != ' ') return 0;
+    return (starts_with(s, "HTTP/1.0\r") || starts_with(s, "HTTP/1.1\r") ||
+        starts_with(s, "HTTP/1.0\n") || starts_with(s, "HTTP/1.1\n"));
 }
 
 static void trim_root_slash(char *s) {
@@ -315,6 +335,13 @@ static void handle_client(SOCKET client) {
     }
 
     copy_url_token(url);
+    if (!good_request_line(url)) {
+        static const unsigned char msg[] = "Bad Request\n";
+        send_response(client, 400, "Bad Request", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(400, 0);
+        closesocket(client);
+        return;
+    }
 
     if (!make_path(url)) {
         static const unsigned char msg[] = "Forbidden\n";
@@ -542,6 +569,12 @@ void WinMainCRTStartup(void) {
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
+
+#ifdef PORTBLASTER_CHECK
+    if (contains(GetCommandLineA(), "--start")) {
+        PostMessageA(hwnd, WM_COMMAND, ID_START, 0);
+    }
+#endif
 
     while (GetMessageA(&msg, 0, 0, 0) > 0) {
         TranslateMessage(&msg);

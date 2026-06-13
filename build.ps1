@@ -17,6 +17,7 @@ Push-Location $projectRoot
 try {
     cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- server_gui.c /Fe:build\portblaster.exe /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
     cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPORTBLASTER_CHECK server_gui.c /Fe:build\portblaster-check.exe /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
+    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbprobe.c /Fe:build\pbprobe.exe /link user32.lib ws2_32.lib"
 }
 finally {
     Pop-Location
