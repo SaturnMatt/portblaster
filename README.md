@@ -29,7 +29,7 @@ The build script creates:
 - `build\portblaster.exe` - smallest release build.
 - `build\portblaster-check.exe` - validation/debug-friendly build.
 - `build\portblaster-check.pdb` - debug symbols for the validation build.
-- `build\pbprobe.exe` - local safety and performance probe utility.
+- `build\pbcheck.exe` - local safety and performance check utility.
 
 ## Run
 
@@ -48,14 +48,14 @@ http://127.0.0.1:8083/
 Start PortBlaster, then run:
 
 ```powershell
-.\build\pbprobe.exe 127.0.0.1 8083
+.\build\pbcheck.exe 127.0.0.1 8083
 ```
 
-`pbprobe` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
+`pbcheck` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
 Add a third argument to write an HTML report that PortBlaster can serve:
 
 ```powershell
-.\build\pbprobe.exe 127.0.0.1 8083 build\public\probe-report.html
+.\build\pbcheck.exe 127.0.0.1 8083 build\public\probe-report.html
 ```
 
 For automated local validation, the check build has a test hook:

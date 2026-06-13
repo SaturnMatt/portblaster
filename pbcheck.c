@@ -261,7 +261,7 @@ int main(int argc, char **argv) {
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
-    out("pbprobe target=");
+    out("pbcheck target=");
     out(g_host);
     out(":");
     print_u32(g_port);
