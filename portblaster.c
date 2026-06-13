@@ -38,6 +38,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_TIMEOUT
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_TIMEOUT 1
+#else
+#define PB_FEAT_TIMEOUT 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -373,6 +381,14 @@ static void send_all(SOCKET client, const char *data, DWORD len) {
     }
 }
 
+#if PB_FEAT_TIMEOUT
+static void set_client_timeout(SOCKET client) {
+    DWORD timeout = 5000;
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
+}
+#endif
+
 static void send_response(SOCKET client, int status, const char *reason, const char *type, const unsigned char *body, DWORD body_len, int head_only) {
     int p = 0;
     append(g_header, &p, "HTTP/1.1 ");
@@ -555,6 +571,9 @@ static DWORD WINAPI server_thread(LPVOID unused) {
     while (g_running) {
         SOCKET client = accept(g_listener, 0, 0);
         if (client == INVALID_SOCKET) break;
+#if PB_FEAT_TIMEOUT
+        set_client_timeout(client);
+#endif
         handle_client(client);
     }
 

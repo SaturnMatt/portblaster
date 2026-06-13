@@ -214,10 +214,9 @@ static int make_big_file(void) {
     return 1;
 }
 
-static SOCKET connect_target(void) {
+static SOCKET connect_target_with_timeout(DWORD timeout) {
     SOCKET s;
     struct sockaddr_in a;
-    DWORD timeout = 3000;
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) return INVALID_SOCKET;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
@@ -230,6 +229,10 @@ static SOCKET connect_target(void) {
         return INVALID_SOCKET;
     }
     return s;
+}
+
+static SOCKET connect_target(void) {
+    return connect_target_with_timeout(3000);
 }
 
 static int status_code(void) {
@@ -300,6 +303,29 @@ static void probe_mime(const char *name, const char *path, const char *expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_idle_timeout(void) {
+    SOCKET s = connect_target_with_timeout(8000);
+    DWORD start = GetTickCount();
+    DWORD ms;
+    char b;
+    int n;
+    int ok;
+    if (s == INVALID_SOCKET) {
+        out("FAIL idle_timeout connect\r\n");
+        g_fail++;
+        return;
+    }
+    n = recv(s, &b, 1, 0);
+    ms = GetTickCount() - start;
+    closesocket(s);
+    ok = n == 0 && ms >= 4000 && ms <= 7500;
+    out(ok ? "PASS idle_timeout -> " : "FAIL idle_timeout -> ");
+    print_u32(ms);
+    out("ms\r\n");
+    report_row("idle_timeout", 0, ok ? 0 : 1, ms, 0);
+    if (!ok) g_fail++;
+}
+
 static void load(const char *path, DWORD count) {
     DWORD i;
     DWORD total = 0;
@@ -338,6 +364,7 @@ int main(int argc, char **argv) {
     DWORD bytes;
     DWORD big_expect = 0;
     DWORD mime_plus = 0;
+    DWORD timeout_check = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -376,6 +403,9 @@ int main(int argc, char **argv) {
             out("could not prepare mime files\r\n");
             return 2;
         }
+    }
+    if (argc > 6) {
+        timeout_check = parse_u32(argv[6]);
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
@@ -421,6 +451,9 @@ int main(int argc, char **argv) {
         probe_mime("webp", "/mime.webp", "Content-Type: image/webp");
         probe_mime("wasm", "/mime.wasm", "Content-Type: application/wasm");
         probe_mime("pdf", "/mime.pdf", "Content-Type: application/pdf");
+    }
+    if (timeout_check) {
+        probe_idle_timeout();
     }
     load("/", 100);
 

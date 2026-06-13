@@ -108,6 +108,8 @@ Acceptance:
 
 ## 5. Per-Request Timeout
 
+Status: Complete
+
 Build fit: `pb100`, possibly `pb50`
 
 Goal:
@@ -126,7 +128,7 @@ Safety notes:
 
 Acceptance:
 - Normal `pbjelly` requests still pass.
-- A slow/incomplete request eventually closes instead of holding the server forever.
+- `pbjelly` validates that an idle accepted connection is closed by `pb100` within the timeout window.
 
 ## 6. Thread-Per-Connection
 
