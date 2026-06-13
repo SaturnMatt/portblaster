@@ -70,6 +70,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_DIR_LIST
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_DIR_LIST 1
+#else
+#define PB_FEAT_DIR_LIST 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -126,6 +134,10 @@ static char g_access_log_path[PATH_MAX_LOCAL];
 #if PB_FEAT_CONFIG
 static char g_config[512];
 static int g_config_error = 0;
+#endif
+#if PB_FEAT_DIR_LIST
+static int g_dir_list = 0;
+static char g_dir_body[HEADER_MAX];
 #endif
 static unsigned short g_port = 8083;
 
@@ -198,6 +210,10 @@ static void load_config(void) {
             }
         } else if (starts_with(p, "root=")) {
             copy_line_value(g_root, sizeof(g_root), p + 5);
+#if PB_FEAT_DIR_LIST
+        } else if (starts_with(p, "dir_list=1")) {
+            g_dir_list = 1;
+#endif
         }
         while (*p && *p != '\n') p++;
         if (*p == '\n') p++;
@@ -523,6 +539,48 @@ static void send_response(SOCKET client, int status, const char *reason, const c
     }
 }
 
+#if PB_FEAT_DIR_LIST
+static void append_html_name(char *dst, int *pos, const char *src) {
+    while (*src && *pos < HEADER_MAX - 1) {
+        if (*src == '<') append(dst, pos, "&lt;");
+        else if (*src == '>') append(dst, pos, "&gt;");
+        else if (*src == '&') append(dst, pos, "&amp;");
+        else if (*src == '"') append(dst, pos, "&quot;");
+        else {
+            dst[(*pos)++] = *src;
+            dst[*pos] = 0;
+        }
+        src++;
+    }
+}
+
+static void send_directory_listing(SOCKET client, int head_only) {
+    WIN32_FIND_DATAA fd;
+    HANDLE find;
+    char pattern[PATH_MAX_LOCAL];
+    int p = 0;
+    append(g_dir_body, &p, "<!doctype html><title>Index</title><h1>Index</h1><ul>");
+    lstrcpyA(pattern, g_path);
+    lstrcatA(pattern, "\\*");
+    find = FindFirstFileA(pattern, &fd);
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.cFileName[0] == '.') continue;
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+            append(g_dir_body, &p, "<li><a href=\"");
+            append_html_name(g_dir_body, &p, fd.cFileName);
+            append(g_dir_body, &p, "\">");
+            append_html_name(g_dir_body, &p, fd.cFileName);
+            append(g_dir_body, &p, "</a></li>");
+        } while (FindNextFileA(find, &fd));
+        FindClose(find);
+    }
+    append(g_dir_body, &p, "</ul>");
+    send_response(client, 200, "OK", "text/html; charset=utf-8", (const unsigned char *)g_dir_body, (DWORD)p, head_only);
+    note_request(200, head_only ? 0 : (DWORD)p);
+}
+#endif
+
 #if PB_FEAT_STATUS_ENDPOINT
 static void send_status_endpoint(SOCKET client, int head_only) {
     int p = 0;
@@ -569,6 +627,7 @@ static void handle_client(SOCKET client) {
     const char *url;
     HANDLE file;
     DWORD size_low;
+    DWORD attr;
 #if !PB_FEAT_STREAM
     DWORD read_count;
 #endif
@@ -616,6 +675,24 @@ static void handle_client(SOCKET client) {
         note_request(403, 0);
         closesocket(client);
         return;
+    }
+
+    attr = GetFileAttributesA(g_path);
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+#if PB_FEAT_DIR_LIST
+        if (g_dir_list) {
+            send_directory_listing(client, head_only);
+            closesocket(client);
+            return;
+        }
+#endif
+        {
+            static const unsigned char msg[] = "Not Found\n";
+            send_response(client, 404, "Not Found", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+            note_request(404, 0);
+            closesocket(client);
+            return;
+        }
     }
 
     file = CreateFileA(g_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);

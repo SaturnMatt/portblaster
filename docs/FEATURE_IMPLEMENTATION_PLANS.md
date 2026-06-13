@@ -227,6 +227,8 @@ Acceptance:
 
 ## 10. Directory Listing
 
+Status: Complete
+
 Build fit: `pb100`, off by default
 
 Goal:
@@ -244,8 +246,8 @@ Safety notes:
 - Avoid exposing hidden/system files unless explicitly allowed later.
 
 Acceptance:
-- Directory without `index.html` returns `404` unless enabled.
-- Enabled listing escapes names and links correctly.
+- Directory without `index.html` returns `404` unless `dir_list=1` is configured.
+- `pbjelly` validates that enabled listing returns an HTML response containing the generated file name.
 
 ## 11. Status Endpoint
 

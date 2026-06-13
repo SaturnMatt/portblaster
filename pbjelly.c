@@ -190,6 +190,27 @@ static int write_named_file(const char *name, const char *body) {
     return 1;
 }
 
+static int make_list_dir(void) {
+    char dir[MAX_PATH];
+    char file[MAX_PATH];
+    DWORD wrote;
+    HANDLE f;
+    if (!g_report_dir[0]) return 0;
+    lstrcpyA(dir, g_report_dir);
+    lstrcatA(dir, "listdir");
+    CreateDirectoryA(dir, 0);
+    lstrcpyA(file, dir);
+    lstrcatA(file, "\\shown.txt");
+    f = CreateFileA(file, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    if (!WriteFile(f, "listed", 6, &wrote, 0) || wrote != 6) {
+        CloseHandle(f);
+        return 0;
+    }
+    CloseHandle(f);
+    return 1;
+}
+
 static int make_big_file(void) {
     char zeros[4096];
     DWORD wrote;
@@ -322,6 +343,22 @@ static void probe_status_endpoint(int expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_dir_listing(int expect) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok;
+    make_req("GET", "/listdir");
+    code = request_raw(g_req, &ms, &bytes);
+    ok = code == expect;
+    if (expect == 200) ok = ok && has_text(g_recv, "shown.txt");
+    out(ok ? "PASS dir_listing -> " : "FAIL dir_listing -> ");
+    print_u32((DWORD)code);
+    out("\r\n");
+    report_row("dir_listing", (DWORD)expect, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void probe_access_log(const char *path, int expect) {
     HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     DWORD n = 0;
@@ -404,6 +441,7 @@ int main(int argc, char **argv) {
     DWORD timeout_check = 0;
     DWORD status_expect = 0;
     DWORD access_log_expect = 0;
+    DWORD dir_expect = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -451,6 +489,13 @@ int main(int argc, char **argv) {
     }
     if (argc > 9) {
         access_log_expect = parse_u32(argv[9]);
+    }
+    if (argc > 10) {
+        dir_expect = parse_u32(argv[10]);
+        if (!make_list_dir()) {
+            out("could not prepare list dir\r\n");
+            return 2;
+        }
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
@@ -502,6 +547,9 @@ int main(int argc, char **argv) {
     }
     if (status_expect) {
         probe_status_endpoint((int)status_expect);
+    }
+    if (dir_expect) {
+        probe_dir_listing((int)dir_expect);
     }
     load("/", 100);
     if (argc > 8) {
