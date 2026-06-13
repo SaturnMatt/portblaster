@@ -51,6 +51,8 @@ Trial builds can mix features for byte-cost experiments:
 .\build.ps1 -TrialName pblab -TrialFeatures LOG,METRICS,STREAM -TrialJelly
 ```
 
+TLS is intentionally not in the trial feature list yet. A native SChannel build needs a correct certificate workflow and its own validation before it belongs in the tiny-build matrix.
+
 ## Run
 
 ```powershell

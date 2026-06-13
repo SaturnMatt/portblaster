@@ -412,7 +412,8 @@ static void probe_status_endpoint(int expect) {
     ok = code == expect;
     if (expect == 200) {
         ok = ok && has_text(g_recv, "target=100") && has_text(g_recv, "requests=") &&
-            has_text(g_recv, "features=") && has_text(g_recv, "STATUS_ENDPOINT");
+            has_text(g_recv, "features=") && has_text(g_recv, "STATUS_ENDPOINT") &&
+            !has_text(g_recv, "TLS") && !has_text(g_recv, "SCHANNEL");
     }
     out(ok ? "PASS status_endpoint -> " : "FAIL status_endpoint -> ");
     print_u32((DWORD)code);

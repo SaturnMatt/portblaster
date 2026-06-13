@@ -434,16 +434,18 @@ Acceptance:
 
 ## 18. HTTPS via SChannel
 
+Status: Complete - deferred by safety gate
+
 Build fit: future separate experiment, not current `pb100`
 
 Goal:
-- Explore native Windows TLS without OpenSSL.
+- Do not include native TLS in the standard tiny builds until a separate experiment proves it can be made safe, understandable, and size-appropriate.
 
 Implementation goals:
-- Keep as an experimental branch/profile until byte cost is known.
-- Use SChannel directly.
-- Require explicit cert configuration.
-- Feature gate as `PB_FEAT_TLS_SCHANNEL`.
+- Keep `pb20`, `pb50`, and `pb100` HTTP-only.
+- Keep the supported TLS shape as external reverse proxy -> loopback PortBlaster.
+- Record SChannel as a future experiment only, not a claim in current binaries.
+- Do not add `PB_FEAT_TLS_SCHANNEL` to the public trial feature list until there is a working cert UX, validation suite, and byte-cost report.
 
 Safety notes:
 - TLS is easy to get wrong.
@@ -451,8 +453,10 @@ Safety notes:
 - Do not include in standard builds until proven.
 
 Acceptance:
-- Experimental build serves HTTPS locally with documented cert setup.
-- Size, complexity, and security tradeoffs are recorded.
+- README documents that standard builds are HTTP-only.
+- README documents the safe loopback reverse-proxy TLS shape.
+- `pbjelly` verifies that the observable `pb100` feature list does not claim built-in TLS.
+- Built-in SChannel remains a future experiment, not an incomplete production feature.
 
 ## 19. Reverse Proxy TLS Docs
 
