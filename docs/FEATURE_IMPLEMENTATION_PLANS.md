@@ -60,6 +60,8 @@ Acceptance:
 
 ## 3. Better Status Codes
 
+Status: Complete
+
 Build fit: all builds
 
 Goal:
@@ -79,7 +81,7 @@ Safety notes:
 
 Acceptance:
 - `pbjelly` explicitly checks `400`, `403`, `404`, `405`, and load success.
-- Add a `413` check with a generated large file when practical.
+- `pbjelly` can generate a large file and validate the expected large-file status for each target build.
 
 ## 4. Larger MIME Table
 

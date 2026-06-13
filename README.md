@@ -74,6 +74,12 @@ Add a third argument to write an HTML report that PortBlaster can serve:
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\public\jelly-report.html
 ```
 
+Pass a fourth argument to validate large-file behavior:
+
+```powershell
+.\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\pbjelly\public\jelly-report.html 413
+```
+
 For automated local validation, the check build has a test hook:
 
 ```powershell

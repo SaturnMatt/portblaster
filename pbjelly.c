@@ -4,6 +4,7 @@
 
 #define RECV_MAX 8192
 #define REQ_MAX 1024
+#define BIG_SIZE 1200000
 
 static char g_recv[RECV_MAX];
 static char g_req[REQ_MAX];
@@ -11,6 +12,7 @@ static char g_host[128] = "127.0.0.1";
 static unsigned short g_port = 8083;
 static int g_fail = 0;
 static HANDLE g_report = INVALID_HANDLE_VALUE;
+static char g_big_path[MAX_PATH];
 
 static int same(const char *a, const char *b) {
     while (*a && *b && *a == *b) {
@@ -27,6 +29,14 @@ static unsigned short parse_port(const char *s) {
     }
     if (*s || v < 1 || v > 65535) return 0;
     return (unsigned short)v;
+}
+
+static DWORD parse_u32(const char *s) {
+    DWORD v = 0;
+    while (*s >= '0' && *s <= '9') {
+        v = v * 10 + (DWORD)(*s++ - '0');
+    }
+    return *s ? 0 : v;
 }
 
 static void print_u32(DWORD v) {
@@ -142,6 +152,32 @@ static void report_end(void) {
     g_report = INVALID_HANDLE_VALUE;
 }
 
+static int make_big_file(const char *report_path) {
+    char zeros[4096];
+    DWORD wrote;
+    DWORD left = BIG_SIZE;
+    DWORD n;
+    HANDLE f;
+    int i = lstrlenA(report_path);
+    while (i > 0 && report_path[i - 1] != '\\' && report_path[i - 1] != '/') i--;
+    if (i <= 0 || i > (int)sizeof(g_big_path) - 9) return 0;
+    lstrcpynA(g_big_path, report_path, i + 1);
+    lstrcatA(g_big_path, "big.bin");
+    for (n = 0; n < sizeof(zeros); n++) zeros[n] = 0;
+    f = CreateFileA(g_big_path, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    while (left) {
+        n = left > sizeof(zeros) ? sizeof(zeros) : left;
+        if (!WriteFile(f, zeros, n, &wrote, 0) || wrote != n) {
+            CloseHandle(f);
+            return 0;
+        }
+        left -= n;
+    }
+    CloseHandle(f);
+    return 1;
+}
+
 static SOCKET connect_target(void) {
     SOCKET s;
     struct sockaddr_in a;
@@ -245,6 +281,7 @@ int main(int argc, char **argv) {
     WSADATA wsa;
     DWORD ms;
     DWORD bytes;
+    DWORD big_expect = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -259,6 +296,13 @@ int main(int argc, char **argv) {
         g_report = CreateFileA(argv[3], GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
         if (g_report == INVALID_HANDLE_VALUE) {
             out("could not write report\r\n");
+            return 2;
+        }
+    }
+    if (argc > 4) {
+        big_expect = parse_u32(argv[4]);
+        if (!big_expect || !make_big_file(argv[3])) {
+            out("could not prepare big file\r\n");
             return 2;
         }
     }
@@ -298,6 +342,9 @@ int main(int argc, char **argv) {
     out("\r\n");
     report_row("long_header", 200, (DWORD)code, ms, bytes);
     if (code != 200) g_fail++;
+    if (big_expect) {
+        probe("large_file", "GET", "/big.bin", (int)big_expect);
+    }
     load("/", 100);
 
     WSACleanup();
