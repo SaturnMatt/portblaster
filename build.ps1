@@ -43,6 +43,7 @@ function Get-FeatureDefines {
         elseif ($name -eq 'STREAM') { $defs += '/DPB_FEAT_STREAM=1' }
         elseif ($name -eq 'RANGE') { $defs += '/DPB_FEAT_RANGE=1' }
         elseif ($name -eq 'MIME_PLUS') { $defs += '/DPB_FEAT_MIME_PLUS=1' }
+        elseif ($name -eq 'COPY_URL') { $defs += '/DPB_FEAT_COPY_URL=1' }
         elseif ($name -eq 'TIMEOUT') { $defs += '/DPB_FEAT_TIMEOUT=1' }
         elseif ($name -eq 'STATUS_ENDPOINT') { $defs += '/DPB_FEAT_STATUS_ENDPOINT=1' }
         elseif ($name -eq 'ACCESS_LOG') { $defs += '/DPB_FEAT_ACCESS_LOG=1' }
@@ -50,7 +51,7 @@ function Get-FeatureDefines {
         elseif ($name -eq 'DIR_LIST') { $defs += '/DPB_FEAT_DIR_LIST=1' }
         elseif ($name -eq 'BIND_ALL') { $defs += '/DPB_FEAT_BIND_ALL=1' }
         elseif ($name -eq 'IPV6') { $defs += '/DPB_FEAT_IPV6=1' }
-        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6." }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM, RANGE, MIME_PLUS, COPY_URL, TIMEOUT, STATUS_ENDPOINT, ACCESS_LOG, CONFIG, DIR_LIST, BIND_ALL, IPV6." }
     }
     return ($defs -join ' ')
 }
@@ -77,11 +78,11 @@ function Invoke-ServerBuild {
 Push-Location $projectRoot
 try {
     Invoke-ServerBuild 'pb20' 20 @() $false $false
-    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $false $false
-    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $false $false
+    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $false $false
     Invoke-ServerBuild 'pbj20' 20 @() $true $true
-    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS') $true $true
-    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $true $true
+    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS', 'MIME_PLUS', 'COPY_URL') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM', 'RANGE', 'MIME_PLUS', 'COPY_URL', 'TIMEOUT', 'STATUS_ENDPOINT', 'ACCESS_LOG', 'CONFIG', 'DIR_LIST', 'BIND_ALL', 'IPV6') $true $true
     if ($TrialName) {
         Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
     }

@@ -38,6 +38,8 @@ Acceptance:
 
 ## 2. Copy URL Button
 
+Status: Complete
+
 Build fit: `pb50`, `pb100`
 
 Goal:
@@ -57,6 +59,7 @@ Safety notes:
 Acceptance:
 - Starting on port `8083` copies `http://127.0.0.1:8083/`.
 - Failed starts do not update the copied URL.
+- Jelly validation builds support `--copy-url-test` to prove copy happens only after the running transition.
 
 ## 3. Better Status Codes
 

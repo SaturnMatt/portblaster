@@ -47,6 +47,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_COPY_URL
+#if PB_TARGET_KB >= 50
+#define PB_FEAT_COPY_URL 1
+#else
+#define PB_FEAT_COPY_URL 0
+#endif
+#endif
+
 #ifndef PB_FEAT_TIMEOUT
 #if PB_TARGET_KB >= 100
 #define PB_FEAT_TIMEOUT 1
@@ -117,6 +125,7 @@
 #define ID_STOP 104
 #define ID_STATUS 105
 #define ID_ACTIVITY 106
+#define ID_COPY_URL 107
 
 #define REQ_MAX 1024
 #define ROOT_MAX 384
@@ -129,6 +138,9 @@ static HWND g_port_edit;
 static HWND g_root_edit;
 static HWND g_start_button;
 static HWND g_stop_button;
+#if PB_FEAT_COPY_URL
+static HWND g_copy_button;
+#endif
 static HWND g_status;
 static HWND g_activity;
 static HWND g_main;
@@ -412,6 +424,31 @@ static int contains(const char *s, const char *needle) {
         s++;
     }
     return 0;
+}
+#endif
+
+#if PB_FEAT_COPY_URL
+static void copy_current_url(void) {
+    HGLOBAL mem;
+    char *dst;
+    int len;
+    if (!g_running || !g_url[0] || !OpenClipboard(g_main)) return;
+    EmptyClipboard();
+    len = lstrlenA(g_url) + 1;
+    mem = GlobalAlloc(GMEM_MOVEABLE, len);
+    if (mem) {
+        dst = (char *)GlobalLock(mem);
+        if (dst) {
+            lstrcpyA(dst, g_url);
+            GlobalUnlock(mem);
+            if (SetClipboardData(CF_TEXT, mem)) {
+                mem = 0;
+                set_status("Copied URL.");
+            }
+        }
+        if (mem) GlobalFree(mem);
+    }
+    CloseClipboard();
 }
 #endif
 
@@ -1070,6 +1107,9 @@ static void stop_server(void) {
 static void set_running_ui(int running) {
     EnableWindow(g_start_button, !running);
     EnableWindow(g_stop_button, running);
+#if PB_FEAT_COPY_URL
+    EnableWindow(g_copy_button, running);
+#endif
     EnableWindow(g_port_edit, !running);
     EnableWindow(g_root_edit, !running);
 }
@@ -1095,6 +1135,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_root_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", g_root, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 46, 360, 24, hwnd, (HMENU)ID_ROOT, 0, 0);
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);
+#if PB_FEAT_COPY_URL
+        g_copy_button = CreateWindowA("BUTTON", "Copy URL", WS_CHILD | WS_VISIBLE, 282, 84, 90, 28, hwnd, (HMENU)ID_COPY_URL, 0, 0);
+#endif
         g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE, 12, 126, 430, 24, hwnd, (HMENU)ID_STATUS, 0, 0);
 #if PB_FEAT_LOG
         g_activity = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 152, 430, 78, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
@@ -1107,6 +1150,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == ID_START) start_server();
         if (LOWORD(wp) == ID_STOP) stop_server();
+#if PB_FEAT_COPY_URL
+        if (LOWORD(wp) == ID_COPY_URL) copy_current_url();
+#endif
         return 0;
     case WM_APP + 1:
         set_status("Start failed. Port may be in use.");
@@ -1117,6 +1163,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_APP + 2:
         set_running_status();
         set_running_ui(1);
+#if PB_FEAT_JELLY && PB_FEAT_COPY_URL
+        if (contains(GetCommandLineA(), "--copy-url-test")) copy_current_url();
+#endif
         return 0;
     case WM_APP + 3:
         set_status("Stopped.");
