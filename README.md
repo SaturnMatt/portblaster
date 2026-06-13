@@ -29,10 +29,10 @@ The build script creates:
 - `build\pb20.exe` - 20 KB target release build.
 - `build\pb50.exe` - 50 KB target release build.
 - `build\pb100.exe` - 100 KB target release build.
-- `build\pbcheck\pb20.exe` - validation build for `pb20.exe`.
-- `build\pbcheck\pb50.exe` - validation build for `pb50.exe`.
-- `build\pbcheck\pb100.exe` - validation build for `pb100.exe`.
-- `build\pbcheck\pbprobe.exe` - local safety and performance probe utility.
+- `build\pbjelly\pbj20.exe` - jelly validation build for `pb20.exe`.
+- `build\pbjelly\pbj50.exe` - jelly validation build for `pb50.exe`.
+- `build\pbjelly\pbj100.exe` - jelly validation build for `pb100.exe`.
+- `build\pbjelly\pbjelly.exe` - local safety and performance jelly utility.
 
 ## Run
 
@@ -51,21 +51,21 @@ http://127.0.0.1:8083/
 Start PortBlaster, then run:
 
 ```powershell
-.\build\pbcheck\pbprobe.exe 127.0.0.1 8083
+.\build\pbjelly\pbjelly.exe 127.0.0.1 8083
 ```
 
-`pbprobe` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
+`pbjelly` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals.
 Add a third argument to write an HTML report that PortBlaster can serve:
 
 ```powershell
-.\build\pbcheck\pbprobe.exe 127.0.0.1 8083 build\public\probe-report.html
+.\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\public\jelly-report.html
 ```
 
 For automated local validation, the check build has a test hook:
 
 ```powershell
-.\build\pbcheck\pb20.exe --start
+.\build\pbjelly\pbj20.exe --start
 ```
 
 That starts the GUI and automatically presses Start. The release builds do not use this hook.
-When testing a validation build from `build\pbcheck`, write reports under `build\pbcheck\public` so that validation server can serve them.
+When testing a jelly build from `build\pbjelly`, write reports under `build\pbjelly\public` so that validation server can serve them.

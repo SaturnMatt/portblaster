@@ -94,7 +94,7 @@ static void report_esc(const char *s) {
 
 static void report_begin(void) {
     if (g_report == INVALID_HANDLE_VALUE) return;
-    report("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>PortBlaster Probe Report</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main><nav><a href=\"/\">home</a> <a href=\"/probe.html\">probe</a></nav><h1>Probe Report</h1><p>Target: <code>");
+    report("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>PortBlaster Jelly Report</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main><nav><a href=\"/\">home</a> <a href=\"/probe.html\">jelly</a></nav><h1>Jelly Report</h1><p>Target: <code>");
     report_esc(g_host);
     report(":");
     report_u32(g_port);
@@ -264,7 +264,7 @@ int main(int argc, char **argv) {
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
-    out("pbprobe target=");
+    out("pbjelly target=");
     out(g_host);
     out(":");
     print_u32(g_port);
