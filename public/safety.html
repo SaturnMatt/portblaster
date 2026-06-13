@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PortBlaster Safety</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <nav><a href="/">home</a> <a href="/about.html">about</a> <a href="/how.html">how</a> <a href="/builds.html">builds</a></nav>
+    <h1>Safety</h1>
+    <p>PortBlaster favors predictable local serving over broad protocol coverage.</p>
+    <ul>
+      <li>Binds to loopback by default.</li>
+      <li>Rejects suspicious path characters.</li>
+      <li>Normalizes file paths before opening them.</li>
+      <li>Checks that resolved files stay inside the selected root.</li>
+      <li>Closes each connection after one response.</li>
+    </ul>
+  </main>
+</body>
+</html>

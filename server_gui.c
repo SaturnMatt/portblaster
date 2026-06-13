@@ -29,6 +29,8 @@ static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
 static volatile LONG g_last_status = 0;
 static volatile LONG g_bytes_served = 0;
+static volatile LONG g_last_bytes = 0;
+static LONG g_log_chars = 0;
 static DWORD g_started_tick = 0;
 static char g_root[ROOT_MAX];
 static char g_root_full[PATH_MAX_LOCAL];
@@ -41,6 +43,8 @@ static char g_request[REQ_MAX];
 static char g_path[PATH_MAX_LOCAL];
 static char g_header[HEADER_MAX];
 static unsigned char g_file[FILE_MAX];
+
+static void refresh_activity(void);
 
 static void zero_bytes(void *ptr, DWORD size) {
     volatile unsigned char *p = (volatile unsigned char *)ptr;
@@ -62,9 +66,8 @@ static void set_running_status(void) {
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
     wsprintfA(g_activity_text, "PortBlaster - Running :%u", (unsigned int)g_port);
     SetWindowTextA(g_main, g_activity_text);
-    wsprintfA(g_activity_text, "Running: %s", g_url);
-    set_status(g_activity_text);
     SetTimer(g_main, 1, 1000, 0);
+    refresh_activity();
 }
 
 static void refresh_activity(void) {
@@ -75,8 +78,23 @@ static void refresh_activity(void) {
     DWORD h = up / 3600;
     DWORD m = (up / 60) % 60;
     DWORD s = up % 60;
-    wsprintfA(g_activity_text, "Req: %ld | Last: %ld %s | Bytes: %ld | Up: %02lu:%02lu:%02lu", count, status, g_last_path, bytes, h, m, s);
-    SetWindowTextA(g_activity, g_activity_text);
+    if (g_running) {
+        wsprintfA(g_activity_text, "%s | Req: %ld | Bytes: %ld | Up: %02lu:%02lu:%02lu", g_url, count, bytes, h, m, s);
+        set_status(g_activity_text);
+    }
+}
+
+static void append_log(void) {
+    LONG bytes = g_last_bytes;
+    if (g_log_chars > 12000) {
+        SetWindowTextA(g_activity, "");
+        g_log_chars = 0;
+    }
+    wsprintfA(g_activity_text, "%ld %s %ld B\r\n", g_last_status, g_last_path, bytes);
+    g_log_chars += lstrlenA(g_activity_text);
+    SendMessageA(g_activity, EM_SETSEL, (WPARAM)-1, (LPARAM)-1);
+    SendMessageA(g_activity, EM_REPLACESEL, 0, (LPARAM)g_activity_text);
+    SendMessageA(g_activity, EM_SCROLLCARET, 0, 0);
 }
 
 static void append(char *dst, int *pos, const char *src) {
@@ -146,6 +164,7 @@ static void copy_url_token(const char *url) {
 static void note_request(int status, DWORD bytes) {
     InterlockedIncrement((LONG *)&g_request_count);
     InterlockedExchange((LONG *)&g_last_status, status);
+    InterlockedExchange((LONG *)&g_last_bytes, (LONG)bytes);
     if (bytes) InterlockedExchangeAdd((LONG *)&g_bytes_served, (LONG)bytes);
     PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
@@ -405,9 +424,11 @@ static void start_server(void) {
     InterlockedExchange((LONG *)&g_request_count, 0);
     InterlockedExchange((LONG *)&g_last_status, 0);
     InterlockedExchange((LONG *)&g_bytes_served, 0);
+    InterlockedExchange((LONG *)&g_last_bytes, 0);
+    g_log_chars = 0;
     g_started_tick = 0;
     lstrcpyA(g_last_path, "");
-    refresh_activity();
+    SetWindowTextA(g_activity, "");
 
     GetWindowTextA(g_root_edit, g_root, sizeof(g_root));
     if (!g_root[0]) {
@@ -460,7 +481,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);
         g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE, 12, 126, 430, 24, hwnd, (HMENU)ID_STATUS, 0, 0);
-        g_activity = CreateWindowA("STATIC", "Req: 0 | Last: 0 | Bytes: 0 | Up: 00:00:00", WS_CHILD | WS_VISIBLE, 12, 152, 430, 24, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
+        g_activity = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 152, 430, 78, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
         set_running_ui(0);
         return 0;
     case WM_COMMAND:
@@ -485,6 +506,7 @@ not_running:
         refresh_activity();
         return 0;
     case WM_APP + 4:
+        append_log();
         refresh_activity();
         return 0;
     case WM_TIMER:
@@ -516,7 +538,7 @@ void WinMainCRTStartup(void) {
     RegisterClassA(&wc);
 
     hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster - Stopped", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 470, 235, 0, 0, inst, 0);
+        CW_USEDEFAULT, CW_USEDEFAULT, 470, 285, 0, 0, inst, 0);
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);

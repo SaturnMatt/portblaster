@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How PortBlaster Works</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <nav><a href="/">home</a> <a href="/about.html">about</a> <a href="/safety.html">safety</a> <a href="/builds.html">builds</a></nav>
+    <h1>How it works</h1>
+    <ol>
+      <li>The GUI reads a port and root directory.</li>
+      <li>A server thread binds to <code>127.0.0.1</code>.</li>
+      <li>Each request is parsed as <code>GET</code> or <code>HEAD</code>.</li>
+      <li>The URL is resolved under the configured root.</li>
+      <li>The file is sent with a compact HTTP response.</li>
+    </ol>
+  </main>
+</body>
+</html>
