@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 
 #ifndef PB_TARGET_KB
@@ -94,6 +95,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_IPV6
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_IPV6 1
+#else
+#define PB_FEAT_IPV6 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -157,6 +166,9 @@ static char g_dir_body[HEADER_MAX];
 #endif
 #if PB_FEAT_BIND_ALL
 static int g_bind_all = 0;
+#endif
+#if PB_FEAT_IPV6
+static int g_ipv6 = 0;
 #endif
 static unsigned short g_port = 8083;
 
@@ -237,6 +249,10 @@ static void load_config(void) {
         } else if (starts_with(p, "bind=all")) {
             g_bind_all = 1;
 #endif
+#if PB_FEAT_IPV6
+        } else if (starts_with(p, "ipv6=1")) {
+            g_ipv6 = 1;
+#endif
         }
         while (*p && *p != '\n') p++;
         if (*p == '\n') p++;
@@ -254,6 +270,11 @@ static void set_access_log_path(void) {
 #endif
 
 static void set_running_status(void) {
+#if PB_FEAT_IPV6
+    if (g_ipv6) {
+        wsprintfA(g_url, "http://[::1]:%u/", (unsigned int)g_port);
+    } else
+#endif
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
 #if PB_FEAT_METRICS
 #if PB_FEAT_BIND_ALL
@@ -893,28 +914,56 @@ static DWORD WINAPI server_thread(LPVOID unused) {
         return 1;
     }
 
-    g_listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (g_listener == INVALID_SOCKET) {
-        WSACleanup();
-        PostMessageA(g_main, WM_APP + 1, 0, 0);
-        return 1;
-    }
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(g_port);
+#if PB_FEAT_IPV6
+    if (g_ipv6) {
+        struct sockaddr_in6 addr6;
+        zero_bytes(&addr6, sizeof(addr6));
+        g_listener = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+        if (g_listener == INVALID_SOCKET) {
+            WSACleanup();
+            PostMessageA(g_main, WM_APP + 1, 0, 0);
+            return 1;
+        }
+        addr6.sin6_family = AF_INET6;
+        addr6.sin6_port = htons(g_port);
 #if PB_FEAT_BIND_ALL
-    addr.sin_addr.s_addr = htonl(g_bind_all ? INADDR_ANY : 0x7f000001);
+        if (!g_bind_all)
+#endif
+        addr6.sin6_addr.u.Byte[15] = 1;
+        if (bind(g_listener, (struct sockaddr *)&addr6, sizeof(addr6)) == SOCKET_ERROR ||
+            listen(g_listener, SOMAXCONN) == SOCKET_ERROR) {
+            closesocket(g_listener);
+            g_listener = INVALID_SOCKET;
+            WSACleanup();
+            PostMessageA(g_main, WM_APP + 1, 0, 0);
+            return 1;
+        }
+    } else
+#endif
+    {
+        g_listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (g_listener == INVALID_SOCKET) {
+            WSACleanup();
+            PostMessageA(g_main, WM_APP + 1, 0, 0);
+            return 1;
+        }
+
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(g_port);
+#if PB_FEAT_BIND_ALL
+        addr.sin_addr.s_addr = htonl(g_bind_all ? INADDR_ANY : 0x7f000001);
 #else
-    addr.sin_addr.s_addr = htonl(0x7f000001);
+        addr.sin_addr.s_addr = htonl(0x7f000001);
 #endif
 
-    if (bind(g_listener, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR ||
-        listen(g_listener, SOMAXCONN) == SOCKET_ERROR) {
-        closesocket(g_listener);
-        g_listener = INVALID_SOCKET;
-        WSACleanup();
-        PostMessageA(g_main, WM_APP + 1, 0, 0);
-        return 1;
+        if (bind(g_listener, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR ||
+            listen(g_listener, SOMAXCONN) == SOCKET_ERROR) {
+            closesocket(g_listener);
+            g_listener = INVALID_SOCKET;
+            WSACleanup();
+            PostMessageA(g_main, WM_APP + 1, 0, 0);
+            return 1;
+        }
     }
 
     InterlockedExchange(&g_running, 1);

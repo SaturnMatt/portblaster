@@ -324,6 +324,8 @@ Acceptance:
 
 ## 14. IPv6
 
+Status: Complete
+
 Build fit: `pb100`, later
 
 Goal:
@@ -341,6 +343,7 @@ Safety notes:
 Acceptance:
 - `http://[::1]:8083/` works when enabled.
 - IPv4 behavior remains unchanged.
+- `pbjelly` validates the same safety/load suite through `::1` when `ipv6=1` is configured.
 
 ## 15. Tray / Minimize Behavior
 

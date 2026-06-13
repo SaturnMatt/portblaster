@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <iphlpapi.h>
 
@@ -50,6 +51,10 @@ static DWORD parse_u32(const char *s) {
         v = v * 10 + (DWORD)(*s++ - '0');
     }
     return *s ? 0 : v;
+}
+
+static int host_is_ipv6(void) {
+    return has_text(g_host, ":");
 }
 
 static void print_u32(DWORD v) {
@@ -239,6 +244,22 @@ static int make_big_file(void) {
 static SOCKET connect_target_with_timeout(DWORD timeout) {
     SOCKET s;
     struct sockaddr_in a;
+    struct sockaddr_in6 a6;
+    if (host_is_ipv6()) {
+        s = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+        if (s == INVALID_SOCKET) return INVALID_SOCKET;
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
+        ZeroMemory(&a6, sizeof(a6));
+        a6.sin6_family = AF_INET6;
+        a6.sin6_port = htons(g_port);
+        a6.sin6_addr.u.Byte[15] = 1;
+        if (connect(s, (struct sockaddr *)&a6, sizeof(a6)) == SOCKET_ERROR) {
+            closesocket(s);
+            return INVALID_SOCKET;
+        }
+        return s;
+    }
     s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) return INVALID_SOCKET;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
