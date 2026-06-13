@@ -276,9 +276,9 @@ int main(int argc, char **argv) {
     probe("css", "GET", "/style.css", 200);
     probe("missing", "GET", "/missing-nope.html", 404);
     probe("post", "POST", "/", 405);
-    probe("traversal", "GET", "/../server_gui.c", 403);
-    probe("encoded_traversal", "GET", "/%2e%2e/server_gui.c", 403);
-    probe("backslash", "GET", "/..\\server_gui.c", 403);
+    probe("traversal", "GET", "/../portblaster.c", 403);
+    probe("encoded_traversal", "GET", "/%2e%2e/portblaster.c", 403);
+    probe("backslash", "GET", "/..\\portblaster.c", 403);
     probe("drive", "GET", "/C:/Windows/win.ini", 403);
     code = request_raw("GET /\r\n\r\n", &ms, &bytes);
     out(code == 400 ? "PASS no_version -> " : "FAIL no_version -> ");

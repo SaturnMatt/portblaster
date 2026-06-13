@@ -34,6 +34,19 @@ The build script creates:
 - `build\pbjelly\pbj100.exe` - jelly validation build for `pb100.exe`.
 - `build\pbjelly\pbjelly.exe` - local safety and performance jelly utility.
 
+The three release builds come from the same `portblaster.c` source with compile-time feature flags:
+
+- `pb20.exe` - safety-first minimum build.
+- `pb50.exe` - adds request log, uptime, bytes served, and title state.
+- `pb100.exe` - adds chunked streaming for larger files.
+
+Trial builds can mix features for byte-cost experiments:
+
+```powershell
+.\build.ps1 -TrialName pblab -TrialFeatures LOG,STREAM
+.\build.ps1 -TrialName pblab -TrialFeatures LOG,METRICS,STREAM -TrialJelly
+```
+
 ## Run
 
 ```powershell

@@ -1,3 +1,9 @@
+param(
+    [string]$TrialName = '',
+    [string[]]$TrialFeatures = @(),
+    [switch]$TrialJelly
+)
+
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -27,14 +33,49 @@ if (-not (Test-Path -LiteralPath $vcvars)) {
     throw "Could not find Visual Studio vcvars64.bat at $vcvars"
 }
 
+function Get-FeatureDefines {
+    param([string[]]$Features)
+    $defs = @()
+    foreach ($feature in $Features) {
+        $name = $feature.ToUpperInvariant()
+        if ($name -eq 'LOG') { $defs += '/DPB_FEAT_LOG=1' }
+        elseif ($name -eq 'METRICS') { $defs += '/DPB_FEAT_METRICS=1' }
+        elseif ($name -eq 'STREAM') { $defs += '/DPB_FEAT_STREAM=1' }
+        elseif ($name -ne '') { throw "Unknown feature '$feature'. Use LOG, METRICS, STREAM." }
+    }
+    return ($defs -join ' ')
+}
+
+function Invoke-ServerBuild {
+    param(
+        [string]$Name,
+        [int]$TargetKb,
+        [string[]]$Features,
+        [bool]$Jelly,
+        [bool]$Debug
+    )
+
+    $featureDefs = Get-FeatureDefines $Features
+    $outPath = if ($Jelly) { "build\pbjelly\$Name.exe" } else { "build\$Name.exe" }
+    $debugDefs = if ($Jelly) { '/DPB_FEAT_JELLY=1 /DPORTBLASTER_CHECK' } else { '' }
+    if ($Debug) {
+        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
+    } else {
+        cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=$TargetKb $featureDefs $debugDefs portblaster.c /Fe:$outPath /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
+    }
+}
+
 Push-Location $projectRoot
 try {
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=20 server_gui.c /Fe:build\pb20.exe /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=50 server_gui.c /Fe:build\pb50.exe /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 /GS- /DPB_TARGET_KB=100 server_gui.c /Fe:build\pb100.exe /link /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /INCREMENTAL:NO"
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPORTBLASTER_CHECK /DPB_TARGET_KB=20 server_gui.c /Fe:build\pbjelly\pbj20.exe /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPORTBLASTER_CHECK /DPB_TARGET_KB=50 server_gui.c /Fe:build\pbjelly\pbj50.exe /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
-    cmd /c "`"$vcvars`" >nul && cl /nologo /TC /Od /Zi /GS- /DPORTBLASTER_CHECK /DPB_TARGET_KB=100 server_gui.c /Fe:build\pbjelly\pbj100.exe /link /DEBUG:FULL /NODEFAULTLIB user32.lib ws2_32.lib kernel32.lib /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS /INCREMENTAL:NO"
+    Invoke-ServerBuild 'pb20' 20 @() $false $false
+    Invoke-ServerBuild 'pb50' 50 @('LOG', 'METRICS') $false $false
+    Invoke-ServerBuild 'pb100' 100 @('LOG', 'METRICS', 'STREAM') $false $false
+    Invoke-ServerBuild 'pbj20' 20 @() $true $true
+    Invoke-ServerBuild 'pbj50' 50 @('LOG', 'METRICS') $true $true
+    Invoke-ServerBuild 'pbj100' 100 @('LOG', 'METRICS', 'STREAM') $true $true
+    if ($TrialName) {
+        Invoke-ServerBuild $TrialName 50 $TrialFeatures ([bool]$TrialJelly) ([bool]$TrialJelly)
+    }
     cmd /c "`"$vcvars`" >nul && cl /nologo /TC /O1 pbjelly.c /Fe:build\pbjelly\pbjelly.exe /link user32.lib ws2_32.lib"
 }
 finally {

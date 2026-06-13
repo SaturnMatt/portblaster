@@ -2,6 +2,42 @@
 #include <winsock2.h>
 #include <windows.h>
 
+#ifndef PB_TARGET_KB
+#define PB_TARGET_KB 50
+#endif
+
+#ifndef PB_FEAT_LOG
+#if PB_TARGET_KB >= 50
+#define PB_FEAT_LOG 1
+#else
+#define PB_FEAT_LOG 0
+#endif
+#endif
+
+#ifndef PB_FEAT_METRICS
+#if PB_TARGET_KB >= 50
+#define PB_FEAT_METRICS 1
+#else
+#define PB_FEAT_METRICS 0
+#endif
+#endif
+
+#ifndef PB_FEAT_STREAM
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_STREAM 1
+#else
+#define PB_FEAT_STREAM 0
+#endif
+#endif
+
+#ifndef PB_FEAT_JELLY
+#ifdef PORTBLASTER_CHECK
+#define PB_FEAT_JELLY 1
+#else
+#define PB_FEAT_JELLY 0
+#endif
+#endif
+
 #define ID_PORT 101
 #define ID_ROOT 102
 #define ID_START 103
@@ -14,6 +50,7 @@
 #define PATH_MAX_LOCAL 768
 #define HEADER_MAX 512
 #define FILE_MAX (1024 * 1024)
+#define STREAM_CHUNK 8192
 
 static HWND g_port_edit;
 static HWND g_root_edit;
@@ -28,10 +65,16 @@ static HANDLE g_thread = 0;
 static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
 static volatile LONG g_last_status = 0;
+#if PB_FEAT_METRICS
 static volatile LONG g_bytes_served = 0;
+#endif
+#if PB_FEAT_LOG
 static volatile LONG g_last_bytes = 0;
 static LONG g_log_chars = 0;
+#endif
+#if PB_FEAT_METRICS
 static DWORD g_started_tick = 0;
+#endif
 static char g_root[ROOT_MAX];
 static char g_root_full[PATH_MAX_LOCAL];
 static char g_url[64];
@@ -42,7 +85,11 @@ static unsigned short g_port = 8083;
 static char g_request[REQ_MAX];
 static char g_path[PATH_MAX_LOCAL];
 static char g_header[HEADER_MAX];
+#if PB_FEAT_STREAM
+static unsigned char g_chunk[STREAM_CHUNK];
+#else
 static unsigned char g_file[FILE_MAX];
+#endif
 
 static void refresh_activity(void);
 
@@ -64,15 +111,21 @@ static void set_default_root(void) {
 
 static void set_running_status(void) {
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
+#if PB_FEAT_METRICS
     wsprintfA(g_activity_text, "PortBlaster - Running :%u", (unsigned int)g_port);
     SetWindowTextA(g_main, g_activity_text);
     SetTimer(g_main, 1, 1000, 0);
     refresh_activity();
+#else
+    wsprintfA(g_activity_text, "Running: %s", g_url);
+    set_status(g_activity_text);
+#endif
 }
 
 static void refresh_activity(void) {
     LONG count = g_request_count;
     LONG status = g_last_status;
+#if PB_FEAT_METRICS
     LONG bytes = g_bytes_served;
     DWORD up = g_started_tick ? (GetTickCount() - g_started_tick) / 1000 : 0;
     DWORD h = up / 3600;
@@ -82,8 +135,17 @@ static void refresh_activity(void) {
         wsprintfA(g_activity_text, "%s | Req: %ld | Bytes: %ld | Up: %02lu:%02lu:%02lu", g_url, count, bytes, h, m, s);
         set_status(g_activity_text);
     }
+#else
+    if (count <= 0) {
+        SetWindowTextA(g_activity, "Requests: 0 | Last: none");
+    } else {
+        wsprintfA(g_activity_text, "Requests: %ld | Last: %ld %s", count, status, g_last_path);
+        SetWindowTextA(g_activity, g_activity_text);
+    }
+#endif
 }
 
+#if PB_FEAT_LOG
 static void append_log(void) {
     LONG bytes = g_last_bytes;
     if (g_log_chars > 12000) {
@@ -96,6 +158,7 @@ static void append_log(void) {
     SendMessageA(g_activity, EM_REPLACESEL, 0, (LPARAM)g_activity_text);
     SendMessageA(g_activity, EM_SCROLLCARET, 0, 0);
 }
+#endif
 
 static void append(char *dst, int *pos, const char *src) {
     while (*src && *pos < HEADER_MAX - 1) {
@@ -128,7 +191,7 @@ static int starts_with(const char *s, const char *prefix) {
     return 1;
 }
 
-#ifdef PORTBLASTER_CHECK
+#if PB_FEAT_JELLY
 static int contains(const char *s, const char *needle) {
     const char *p;
     while (*s) {
@@ -177,8 +240,14 @@ static void copy_url_token(const char *url) {
 static void note_request(int status, DWORD bytes) {
     InterlockedIncrement((LONG *)&g_request_count);
     InterlockedExchange((LONG *)&g_last_status, status);
+#if PB_FEAT_LOG
     InterlockedExchange((LONG *)&g_last_bytes, (LONG)bytes);
+#endif
+#if PB_FEAT_METRICS
     if (bytes) InterlockedExchangeAdd((LONG *)&g_bytes_served, (LONG)bytes);
+#else
+    (void)bytes;
+#endif
     PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
 
@@ -306,13 +375,37 @@ static void send_response(SOCKET client, int status, const char *reason, const c
     }
 }
 
+#if PB_FEAT_STREAM
+static int send_file_response(SOCKET client, HANDLE file, DWORD body_len, const char *type, int head_only) {
+    int p = 0;
+    DWORD left = body_len;
+    DWORD read_count;
+    append(g_header, &p, "HTTP/1.1 200 OK\r\nContent-Type: ");
+    append(g_header, &p, type);
+    append(g_header, &p, "\r\nContent-Length: ");
+    append_u32(g_header, &p, body_len);
+    append(g_header, &p, "\r\nConnection: close\r\n\r\n");
+    send_all(client, g_header, (DWORD)p);
+    if (head_only) return 1;
+    while (left) {
+        DWORD want = left > STREAM_CHUNK ? STREAM_CHUNK : left;
+        if (!ReadFile(file, g_chunk, want, &read_count, 0) || read_count == 0) return 0;
+        send_all(client, (const char *)g_chunk, read_count);
+        left -= read_count;
+    }
+    return 1;
+}
+#endif
+
 static void handle_client(SOCKET client) {
     int n = recv(client, g_request, REQ_MAX - 1, 0);
     int head_only = 0;
     const char *url;
     HANDLE file;
     DWORD size_low;
+#if !PB_FEAT_STREAM
     DWORD read_count;
+#endif
 
     if (n <= 0) {
         closesocket(client);
@@ -361,11 +454,33 @@ static void handle_client(SOCKET client) {
     }
 
     size_low = GetFileSize(file, 0);
-    if (size_low == INVALID_FILE_SIZE || size_low > FILE_MAX) {
-        static const unsigned char msg[] = "File Too Large\n";
+#if PB_FEAT_STREAM
+    if (size_low == INVALID_FILE_SIZE) {
+        static const unsigned char msg[] = "Read Error\n";
         CloseHandle(file);
         send_response(client, 500, "Internal Server Error", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
         note_request(500, 0);
+        closesocket(client);
+        return;
+    }
+
+    if (!send_file_response(client, file, size_low, type_for(g_path), head_only)) {
+        CloseHandle(file);
+        note_request(500, 0);
+        closesocket(client);
+        return;
+    }
+
+    CloseHandle(file);
+    note_request(200, head_only ? 0 : size_low);
+    closesocket(client);
+    return;
+#else
+    if (size_low == INVALID_FILE_SIZE || size_low > FILE_MAX) {
+        static const unsigned char msg[] = "File Too Large\n";
+        CloseHandle(file);
+        send_response(client, 413, "Payload Too Large", "text/plain; charset=utf-8", msg, sizeof(msg) - 1, 0);
+        note_request(413, 0);
         closesocket(client);
         return;
     }
@@ -383,6 +498,7 @@ static void handle_client(SOCKET client) {
     send_response(client, 200, "OK", type_for(g_path), g_file, size_low, head_only);
     note_request(200, head_only ? 0 : size_low);
     closesocket(client);
+#endif
 }
 
 static DWORD WINAPI server_thread(LPVOID unused) {
@@ -416,7 +532,9 @@ static DWORD WINAPI server_thread(LPVOID unused) {
     }
 
     InterlockedExchange(&g_running, 1);
+#if PB_FEAT_METRICS
     g_started_tick = GetTickCount();
+#endif
     PostMessageA(g_main, WM_APP + 2, 0, 0);
 
     while (g_running) {
@@ -450,12 +568,22 @@ static void start_server(void) {
     g_port = port;
     InterlockedExchange((LONG *)&g_request_count, 0);
     InterlockedExchange((LONG *)&g_last_status, 0);
+#if PB_FEAT_METRICS
     InterlockedExchange((LONG *)&g_bytes_served, 0);
+#endif
+#if PB_FEAT_LOG
     InterlockedExchange((LONG *)&g_last_bytes, 0);
     g_log_chars = 0;
+#endif
+#if PB_FEAT_METRICS
     g_started_tick = 0;
+#endif
     lstrcpyA(g_last_path, "");
+#if PB_FEAT_LOG
     SetWindowTextA(g_activity, "");
+#else
+    refresh_activity();
+#endif
 
     GetWindowTextA(g_root_edit, g_root, sizeof(g_root));
     if (!g_root[0]) {
@@ -470,9 +598,13 @@ static void start_server(void) {
     g_thread = CreateThread(0, 0, server_thread, 0, 0, 0);
     if (!g_thread) {
         set_status("Could not start server thread.");
+#if PB_FEAT_METRICS
         SetWindowTextA(g_main, "PortBlaster - Start failed");
+#endif
     } else {
+#if PB_FEAT_METRICS
         SetWindowTextA(g_main, "PortBlaster - Starting");
+#endif
         set_status("Starting...");
         CloseHandle(g_thread);
         g_thread = 0;
@@ -484,7 +616,9 @@ static void stop_server(void) {
     if (g_listener != INVALID_SOCKET) {
         closesocket(g_listener);
     }
+#if PB_FEAT_METRICS
     SetWindowTextA(g_main, "PortBlaster - Stopping");
+#endif
     set_status("Stopping...");
 }
 
@@ -508,7 +642,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);
         g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE, 12, 126, 430, 24, hwnd, (HMENU)ID_STATUS, 0, 0);
+#if PB_FEAT_LOG
         g_activity = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 152, 430, 78, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
+#else
+        g_activity = CreateWindowA("STATIC", "Requests: 0 | Last: none", WS_CHILD | WS_VISIBLE, 12, 152, 430, 24, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
+#endif
         set_running_ui(0);
         return 0;
     case WM_COMMAND:
@@ -517,7 +655,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 1:
         set_status("Start failed. Port may be in use.");
+#if PB_FEAT_METRICS
         SetWindowTextA(g_main, "PortBlaster - Start failed");
+#endif
         goto not_running;
     case WM_APP + 2:
         set_running_status();
@@ -525,20 +665,28 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_APP + 3:
         set_status("Stopped.");
+#if PB_FEAT_METRICS
         SetWindowTextA(g_main, "PortBlaster - Stopped");
+#endif
 not_running:
+#if PB_FEAT_METRICS
         KillTimer(hwnd, 1);
         g_started_tick = 0;
+#endif
         set_running_ui(0);
         refresh_activity();
         return 0;
     case WM_APP + 4:
+#if PB_FEAT_LOG
         append_log();
+#endif
         refresh_activity();
         return 0;
+#if PB_FEAT_METRICS
     case WM_TIMER:
         if (wp == 1) refresh_activity();
         return 0;
+#endif
     case WM_CLOSE:
         stop_server();
         DestroyWindow(hwnd);
@@ -565,12 +713,12 @@ void WinMainCRTStartup(void) {
     RegisterClassA(&wc);
 
     hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster - Stopped", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 470, 285, 0, 0, inst, 0);
+        CW_USEDEFAULT, CW_USEDEFAULT, 470, PB_FEAT_LOG ? 285 : 235, 0, 0, inst, 0);
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
 
-#ifdef PORTBLASTER_CHECK
+#if PB_FEAT_JELLY
     if (contains(GetCommandLineA(), "--start")) {
         PostMessageA(hwnd, WM_COMMAND, ID_START, 0);
     }

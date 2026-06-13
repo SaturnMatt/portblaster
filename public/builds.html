@@ -17,6 +17,12 @@
       <li><code>pb100.exe</code>: 100 KB target release build.</li>
       <li><code>pbjelly\</code>: jelly validation builds and <code>pbjelly.exe</code>.</li>
     </ul>
+    <p>All three release builds come from <code>portblaster.c</code> with compile-time feature flags.</p>
+    <ul>
+      <li><code>pb20</code>: minimal safe server.</li>
+      <li><code>pb50</code>: log and metrics.</li>
+      <li><code>pb100</code>: log, metrics, and streaming file responses.</li>
+    </ul>
     <p>The jelly utility checks normal pages, rejected paths, malformed request lines, unsupported methods, and repeated request latency.</p>
     <p>The validation builds accept <code>--start</code> for automated local testing. The release builds stay manual and size-focused.</p>
   </main>
