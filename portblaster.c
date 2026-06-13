@@ -54,6 +54,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_ACCESS_LOG
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_ACCESS_LOG 1
+#else
+#define PB_FEAT_ACCESS_LOG 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -104,6 +112,9 @@ static char g_root_full[PATH_MAX_LOCAL];
 static char g_url[64];
 static char g_activity_text[256];
 static char g_last_path[128];
+#if PB_FEAT_ACCESS_LOG
+static char g_access_log_path[PATH_MAX_LOCAL];
+#endif
 static unsigned short g_port = 8083;
 
 static char g_request[REQ_MAX];
@@ -135,6 +146,15 @@ static void set_default_root(void) {
     g_root[n] = 0;
     lstrcatA(g_root, "public");
 }
+
+#if PB_FEAT_ACCESS_LOG
+static void set_access_log_path(void) {
+    DWORD n = GetModuleFileNameA(0, g_access_log_path, sizeof(g_access_log_path) - 18);
+    while (n > 0 && g_access_log_path[n - 1] != '\\' && g_access_log_path[n - 1] != '/') n--;
+    g_access_log_path[n] = 0;
+    lstrcatA(g_access_log_path, "portblaster.log");
+}
+#endif
 
 static void set_running_status(void) {
     wsprintfA(g_url, "http://127.0.0.1:%u/", (unsigned int)g_port);
@@ -210,6 +230,24 @@ static void append_u32(char *dst, int *pos, DWORD value) {
     }
     dst[*pos] = 0;
 }
+
+#if PB_FEAT_ACCESS_LOG
+static void append_log_file(int status, DWORD bytes) {
+    HANDLE f;
+    DWORD wrote;
+    int p = 0;
+    append_u32(g_header, &p, (DWORD)status);
+    append(g_header, &p, " ");
+    append(g_header, &p, g_last_path);
+    append(g_header, &p, " ");
+    append_u32(g_header, &p, bytes);
+    append(g_header, &p, " B\r\n");
+    f = CreateFileA(g_access_log_path, FILE_APPEND_DATA, FILE_SHARE_READ, 0, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if (f == INVALID_HANDLE_VALUE) return;
+    WriteFile(f, g_header, (DWORD)p, &wrote, 0);
+    CloseHandle(f);
+}
+#endif
 
 static int starts_with(const char *s, const char *prefix) {
     while (*prefix) {
@@ -288,6 +326,9 @@ static void note_request(int status, DWORD bytes) {
     if (bytes) InterlockedExchangeAdd((LONG *)&g_bytes_served, (LONG)bytes);
 #else
     (void)bytes;
+#endif
+#if PB_FEAT_ACCESS_LOG
+    append_log_file(status, bytes);
 #endif
     PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
@@ -716,6 +757,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_port_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "8083", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 12, 80, 24, hwnd, (HMENU)ID_PORT, 0, 0);
         CreateWindowA("STATIC", "Root", WS_CHILD | WS_VISIBLE, 12, 48, 60, 22, hwnd, 0, 0, 0);
         set_default_root();
+#if PB_FEAT_ACCESS_LOG
+        set_access_log_path();
+#endif
         g_root_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", g_root, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 46, 360, 24, hwnd, (HMENU)ID_ROOT, 0, 0);
         g_start_button = CreateWindowA("BUTTON", "Start", WS_CHILD | WS_VISIBLE, 82, 84, 90, 28, hwnd, (HMENU)ID_START, 0, 0);
         g_stop_button = CreateWindowA("BUTTON", "Stop", WS_CHILD | WS_VISIBLE, 182, 84, 90, 28, hwnd, (HMENU)ID_STOP, 0, 0);

@@ -178,6 +178,8 @@ Acceptance:
 
 ## 8. Access Log File
 
+Status: Complete
+
 Build fit: `pb100`
 
 Goal:
@@ -195,7 +197,7 @@ Safety notes:
 - Make failures non-fatal to serving.
 
 Acceptance:
-- Log file is created only when feature is enabled.
+- `pbjelly` validates that smaller builds do not create the log and `pb100` writes request evidence to `portblaster.log`.
 - Normal serving continues if log write fails.
 
 ## 9. Config File

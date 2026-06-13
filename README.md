@@ -74,10 +74,10 @@ Add a third argument to write an HTML report that PortBlaster can serve:
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\public\jelly-report.html
 ```
 
-Pass extra arguments to validate large-file, MIME, timeout, and status endpoint behavior:
+Pass extra arguments to validate large-file, MIME, timeout, status endpoint, and access-log behavior:
 
 ```powershell
-.\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\pbjelly\public\jelly-report.html 200 1 1 200
+.\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\pbjelly\public\jelly-report.html 200 1 1 200 build\pbjelly\portblaster.log 1
 ```
 
 For automated local validation, the check build has a test hook:

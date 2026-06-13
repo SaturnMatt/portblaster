@@ -322,6 +322,24 @@ static void probe_status_endpoint(int expect) {
     if (!ok) g_fail++;
 }
 
+static void probe_access_log(const char *path, int expect) {
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    DWORD n = 0;
+    int ok;
+    if (f == INVALID_HANDLE_VALUE) {
+        ok = !expect;
+    } else {
+        ReadFile(f, g_recv, RECV_MAX - 1, &n, 0);
+        CloseHandle(f);
+        g_recv[n] = 0;
+        ok = expect ? has_text(g_recv, "200 /") : 0;
+    }
+    out(ok ? "PASS access_log -> " : "FAIL access_log -> ");
+    out(expect ? "present\r\n" : "absent\r\n");
+    report_row("access_log", (DWORD)expect, (DWORD)(ok ? expect : !expect), 0, n);
+    if (!ok) g_fail++;
+}
+
 static void probe_idle_timeout(void) {
     SOCKET s = connect_target_with_timeout(8000);
     DWORD start = GetTickCount();
@@ -385,6 +403,7 @@ int main(int argc, char **argv) {
     DWORD mime_plus = 0;
     DWORD timeout_check = 0;
     DWORD status_expect = 0;
+    DWORD access_log_expect = 0;
     int code;
 
     if (argc > 1) lstrcpynA(g_host, argv[1], sizeof(g_host));
@@ -429,6 +448,9 @@ int main(int argc, char **argv) {
     }
     if (argc > 7) {
         status_expect = parse_u32(argv[7]);
+    }
+    if (argc > 9) {
+        access_log_expect = parse_u32(argv[9]);
     }
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 2;
 
@@ -482,6 +504,9 @@ int main(int argc, char **argv) {
         probe_status_endpoint((int)status_expect);
     }
     load("/", 100);
+    if (argc > 8) {
+        probe_access_log(argv[8], (int)access_log_expect);
+    }
 
     WSACleanup();
     out(g_fail ? "RESULT fail\r\n" : "RESULT pass\r\n");
