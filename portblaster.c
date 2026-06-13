@@ -2,6 +2,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <shellapi.h>
 #include <shlobj.h>
 
 #ifndef PB_TARGET_KB
@@ -120,6 +121,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_TRAY
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_TRAY 1
+#else
+#define PB_FEAT_TRAY 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -136,6 +145,11 @@
 #define ID_ACTIVITY 106
 #define ID_COPY_URL 107
 #define ID_BROWSE 108
+#define ID_TRAY_RESTORE 201
+#define ID_TRAY_COPY 202
+#define ID_TRAY_STOP 203
+#define ID_TRAY_EXIT 204
+#define WM_TRAY (WM_APP + 20)
 
 #define REQ_MAX 1024
 #define ROOT_MAX 384
@@ -157,6 +171,10 @@ static HWND g_copy_button;
 static HWND g_status;
 static HWND g_activity;
 static HWND g_main;
+#if PB_FEAT_TRAY
+static NOTIFYICONDATAA g_tray;
+static int g_tray_added = 0;
+#endif
 
 static SOCKET g_listener = INVALID_SOCKET;
 static HANDLE g_thread = 0;
@@ -309,6 +327,12 @@ static void set_running_status(void) {
 #endif
     wsprintfA(g_activity_text, "PortBlaster - Running :%u", (unsigned int)g_port);
     SetWindowTextA(g_main, g_activity_text);
+#if PB_FEAT_TRAY
+    if (g_tray_added) {
+        lstrcpynA(g_tray.szTip, g_activity_text, sizeof(g_tray.szTip));
+        Shell_NotifyIconA(NIM_MODIFY, &g_tray);
+    }
+#endif
     SetTimer(g_main, 1, 1000, 0);
     refresh_activity();
 #else
@@ -1148,8 +1172,52 @@ static void set_running_ui(int running) {
 #endif
 }
 
+#if PB_FEAT_TRAY
+static void tray_remove(void) {
+    if (g_tray_added) {
+        Shell_NotifyIconA(NIM_DELETE, &g_tray);
+        g_tray_added = 0;
+    }
+}
+
+static void tray_add(HWND hwnd) {
+    if (g_tray_added) return;
+    zero_bytes(&g_tray, sizeof(g_tray));
+    g_tray.cbSize = sizeof(g_tray);
+    g_tray.hWnd = hwnd;
+    g_tray.uID = 1;
+    g_tray.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    g_tray.uCallbackMessage = WM_TRAY;
+    g_tray.hIcon = LoadIconA(0, (LPCSTR)32512);
+    lstrcpynA(g_tray.szTip, g_running ? g_url : "PortBlaster - Stopped", sizeof(g_tray.szTip));
+    if (Shell_NotifyIconA(NIM_ADD, &g_tray)) g_tray_added = 1;
+}
+
+static void restore_window(HWND hwnd) {
+    ShowWindow(hwnd, SW_SHOW);
+    ShowWindow(hwnd, SW_RESTORE);
+    SetForegroundWindow(hwnd);
+    tray_remove();
+}
+
+static void tray_menu(HWND hwnd) {
+    POINT pt;
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    AppendMenuA(menu, MF_STRING, ID_TRAY_RESTORE, "Open");
+#if PB_FEAT_COPY_URL
+    AppendMenuA(menu, g_running ? MF_STRING : MF_GRAYED, ID_TRAY_COPY, "Copy URL");
+#endif
+    AppendMenuA(menu, g_running ? MF_STRING : MF_GRAYED, ID_TRAY_STOP, "Stop");
+    AppendMenuA(menu, MF_STRING, ID_TRAY_EXIT, "Exit");
+    GetCursorPos(&pt);
+    SetForegroundWindow(hwnd);
+    TrackPopupMenu(menu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, 0);
+    DestroyMenu(menu);
+}
+#endif
+
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    (void)lp;
     switch (msg) {
     case WM_CREATE:
     {
@@ -1189,11 +1257,23 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == ID_START) start_server();
         if (LOWORD(wp) == ID_STOP) stop_server();
+#if PB_FEAT_TRAY
+        if (LOWORD(wp) == ID_TRAY_RESTORE) restore_window(hwnd);
+        if (LOWORD(wp) == ID_TRAY_STOP) stop_server();
+        if (LOWORD(wp) == ID_TRAY_EXIT) {
+            stop_server();
+            tray_remove();
+            DestroyWindow(hwnd);
+        }
+#endif
 #if PB_FEAT_BROWSE
         if (LOWORD(wp) == ID_BROWSE) browse_root();
 #endif
 #if PB_FEAT_COPY_URL
         if (LOWORD(wp) == ID_COPY_URL) copy_current_url();
+#if PB_FEAT_TRAY
+        if (LOWORD(wp) == ID_TRAY_COPY) copy_current_url();
+#endif
 #endif
         return 0;
     case WM_APP + 1:
@@ -1219,9 +1299,27 @@ not_running:
         KillTimer(hwnd, 1);
         g_started_tick = 0;
 #endif
+#if PB_FEAT_TRAY
+        if (g_tray_added) {
+            lstrcpynA(g_tray.szTip, "PortBlaster - Stopped", sizeof(g_tray.szTip));
+            Shell_NotifyIconA(NIM_MODIFY, &g_tray);
+        }
+#endif
         set_running_ui(0);
         refresh_activity();
         return 0;
+#if PB_FEAT_TRAY
+    case WM_SIZE:
+        if (wp == SIZE_MINIMIZED) {
+            tray_add(hwnd);
+            ShowWindow(hwnd, SW_HIDE);
+        }
+        return 0;
+    case WM_TRAY:
+        if (lp == WM_LBUTTONDBLCLK) restore_window(hwnd);
+        if (lp == WM_RBUTTONUP) tray_menu(hwnd);
+        return 0;
+#endif
     case WM_APP + 4:
 #if PB_FEAT_LOG
         append_log();
@@ -1235,9 +1333,15 @@ not_running:
 #endif
     case WM_CLOSE:
         stop_server();
+#if PB_FEAT_TRAY
+        tray_remove();
+#endif
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
+#if PB_FEAT_TRAY
+        tray_remove();
+#endif
         PostQuitMessage(0);
         return 0;
     }

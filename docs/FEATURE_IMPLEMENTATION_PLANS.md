@@ -353,6 +353,8 @@ Acceptance:
 
 ## 15. Tray / Minimize Behavior
 
+Status: Complete
+
 Build fit: `pb100`
 
 Goal:
@@ -370,6 +372,7 @@ Safety notes:
 Acceptance:
 - User can restore and stop the server.
 - Exiting closes listener cleanly.
+- Tray menu includes open, copy URL, stop, and exit where the enabled actions match current state.
 
 ## 16. GUI Attack Tester
 
