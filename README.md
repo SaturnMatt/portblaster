@@ -88,3 +88,14 @@ For automated local validation, the check build has a test hook:
 
 That starts the GUI and automatically presses Start. The release builds do not use this hook.
 When testing a jelly build from `build\pbjelly`, write reports under `build\pbjelly\public` so that validation server can serve them.
+
+## TLS
+
+PortBlaster's standard builds are HTTP-only to preserve size and reduce security complexity.
+If TLS is needed, put a reverse proxy in front of PortBlaster and keep PortBlaster bound to loopback:
+
+```text
+browser -> https reverse proxy -> http://127.0.0.1:8083/
+```
+
+Do not expose PortBlaster directly on a public interface unless a future build explicitly adds and validates that mode.

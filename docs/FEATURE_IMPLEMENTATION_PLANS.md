@@ -420,6 +420,8 @@ Acceptance:
 
 ## 19. Reverse Proxy TLS Docs
 
+Status: Complete
+
 Build fit: docs for all builds
 
 Goal:
@@ -436,7 +438,7 @@ Safety notes:
 
 Acceptance:
 - README explains that built-in TLS is not part of standard tiny builds.
-- Users have a clear path if TLS is needed.
+- README documents the loopback reverse-proxy shape for TLS.
 
 ## 20. Compression
 
