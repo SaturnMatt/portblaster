@@ -165,6 +165,8 @@ Acceptance:
 
 ## 7. Worker Pool
 
+Status: Complete
+
 Build fit: future `pb100` or later
 
 Goal:
@@ -184,6 +186,7 @@ Acceptance:
 - Queue saturation behaves predictably.
 - Requests are not dropped silently.
 - `pbjelly` can report queue/load behavior later.
+- `pbjelly` fills the fixed worker queue and validates that overflow receives `503 Service Unavailable`.
 
 ## 8. Access Log File
 

@@ -130,11 +130,11 @@
 #endif
 
 #ifndef PB_FEAT_THREADS
-#if PB_TARGET_KB >= 100
-#define PB_FEAT_THREADS 1
-#else
 #define PB_FEAT_THREADS 0
 #endif
+
+#ifndef PB_FEAT_WORKERS
+#define PB_FEAT_WORKERS 0
 #endif
 
 #ifndef PB_FEAT_JELLY
@@ -165,6 +165,8 @@
 #define HEADER_MAX 512
 #define FILE_MAX (1024 * 1024)
 #define STREAM_CHUNK 8192
+#define PB_WORKER_COUNT 4
+#define PB_QUEUE_MAX 16
 
 static HWND g_port_edit;
 static HWND g_root_edit;
@@ -186,8 +188,16 @@ static int g_tray_added = 0;
 
 static SOCKET g_listener = INVALID_SOCKET;
 static HANDLE g_thread = 0;
-#if PB_FEAT_THREADS
+#if PB_FEAT_THREADS || PB_FEAT_WORKERS
 static CRITICAL_SECTION g_note_lock;
+#endif
+#if PB_FEAT_WORKERS
+static CRITICAL_SECTION g_queue_lock;
+static HANDLE g_queue_event;
+static SOCKET g_queue[PB_QUEUE_MAX];
+static int g_queue_head = 0;
+static int g_queue_tail = 0;
+static int g_queue_count = 0;
 #endif
 static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
@@ -576,14 +586,14 @@ static void note_request(int status, DWORD bytes, const char *path) {
 #else
     (void)bytes;
 #endif
-#if PB_FEAT_THREADS
+#if PB_FEAT_THREADS || PB_FEAT_WORKERS
     EnterCriticalSection(&g_note_lock);
 #endif
     lstrcpynA(g_last_path, path, sizeof(g_last_path));
 #if PB_FEAT_ACCESS_LOG
     append_log_file(status, bytes, path);
 #endif
-#if PB_FEAT_THREADS
+#if PB_FEAT_THREADS || PB_FEAT_WORKERS
     LeaveCriticalSection(&g_note_lock);
 #endif
     PostMessageA(g_main, WM_APP + 4, 0, 0);
@@ -836,7 +846,14 @@ static void send_status_endpoint(PB_CLIENT *ctx, int head_only) {
     append_u32(ctx->status_body, &p, (DWORD)g_bytes_served);
     append(ctx->status_body, &p, "\nuptime=");
     append_u32(ctx->status_body, &p, up);
-    append(ctx->status_body, &p, "\nfeatures=LOG,METRICS,STREAM,MIME_PLUS,TIMEOUT,STATUS_ENDPOINT,THREADS\n");
+    append(ctx->status_body, &p, "\nfeatures=LOG,METRICS,STREAM,MIME_PLUS,TIMEOUT,STATUS_ENDPOINT");
+#if PB_FEAT_THREADS
+    append(ctx->status_body, &p, ",THREADS");
+#endif
+#if PB_FEAT_WORKERS
+    append(ctx->status_body, &p, ",WORKERS");
+#endif
+    append(ctx->status_body, &p, "\n");
     send_response(ctx, 200, "OK", "text/plain; charset=utf-8", (const unsigned char *)ctx->status_body, (DWORD)p, head_only);
     note_request(200, head_only ? 0 : (DWORD)p, ctx->last_path);
 }
@@ -1031,6 +1048,73 @@ static DWORD WINAPI client_thread(LPVOID param) {
 }
 #endif
 
+#if PB_FEAT_WORKERS
+static void send_busy(SOCKET client) {
+    static const char msg[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    send_all(client, msg, sizeof(msg) - 1);
+    closesocket(client);
+}
+
+static int enqueue_client(SOCKET client) {
+    int ok = 0;
+    EnterCriticalSection(&g_queue_lock);
+    if (g_queue_count < PB_QUEUE_MAX) {
+        g_queue[g_queue_tail] = client;
+        g_queue_tail = (g_queue_tail + 1) % PB_QUEUE_MAX;
+        g_queue_count++;
+        ok = 1;
+        SetEvent(g_queue_event);
+    }
+    LeaveCriticalSection(&g_queue_lock);
+    return ok;
+}
+
+static SOCKET dequeue_client(void) {
+    SOCKET client = INVALID_SOCKET;
+    EnterCriticalSection(&g_queue_lock);
+    if (g_queue_count > 0) {
+        client = g_queue[g_queue_head];
+        g_queue_head = (g_queue_head + 1) % PB_QUEUE_MAX;
+        g_queue_count--;
+        if (g_queue_count > 0) SetEvent(g_queue_event);
+    }
+    LeaveCriticalSection(&g_queue_lock);
+    return client;
+}
+
+static DWORD WINAPI worker_thread(LPVOID unused) {
+    (void)unused;
+    while (g_running || g_queue_count > 0) {
+        SOCKET client = dequeue_client();
+        PB_CLIENT *ctx;
+        if (client == INVALID_SOCKET) {
+            WaitForSingleObject(g_queue_event, 1000);
+            continue;
+        }
+        ctx = (PB_CLIENT *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PB_CLIENT));
+        if (!ctx) {
+            closesocket(client);
+            continue;
+        }
+        ctx->client = client;
+#if PB_FEAT_TIMEOUT
+        set_client_timeout(client);
+#endif
+        handle_client(ctx);
+        HeapFree(GetProcessHeap(), 0, ctx);
+    }
+    return 0;
+}
+
+static void start_workers(void) {
+    int i;
+    for (i = 0; i < PB_WORKER_COUNT; i++) {
+        HANDLE h = CreateThread(0, 0, worker_thread, 0, 0, 0);
+        if (h) CloseHandle(h);
+    }
+}
+#endif
+
 static DWORD WINAPI server_thread(LPVOID unused) {
     WSADATA wsa;
     struct sockaddr_in addr;
@@ -1097,12 +1181,20 @@ static DWORD WINAPI server_thread(LPVOID unused) {
 #if PB_FEAT_METRICS
     g_started_tick = GetTickCount();
 #endif
+#if PB_FEAT_WORKERS
+    start_workers();
+#endif
     PostMessageA(g_main, WM_APP + 2, 0, 0);
 
     while (g_running) {
         SOCKET client = accept(g_listener, 0, 0);
+#if !PB_FEAT_WORKERS
         PB_CLIENT *ctx;
+#endif
         if (client == INVALID_SOCKET) break;
+#if PB_FEAT_WORKERS
+        if (!enqueue_client(client)) send_busy(client);
+#else
         ctx = (PB_CLIENT *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PB_CLIENT));
         if (!ctx) {
             closesocket(client);
@@ -1125,6 +1217,7 @@ static DWORD WINAPI server_thread(LPVOID unused) {
 #else
         handle_client(ctx);
         HeapFree(GetProcessHeap(), 0, ctx);
+#endif
 #endif
     }
 
@@ -1170,6 +1263,13 @@ static void start_server(void) {
 #if PB_FEAT_METRICS
     g_started_tick = 0;
 #endif
+#if PB_FEAT_WORKERS
+    EnterCriticalSection(&g_queue_lock);
+    g_queue_head = 0;
+    g_queue_tail = 0;
+    g_queue_count = 0;
+    LeaveCriticalSection(&g_queue_lock);
+#endif
     lstrcpyA(g_last_path, "");
 #if PB_FEAT_LOG
     SetWindowTextA(g_activity, "");
@@ -1208,6 +1308,9 @@ static void stop_server(void) {
     if (g_listener != INVALID_SOCKET) {
         closesocket(g_listener);
     }
+#if PB_FEAT_WORKERS
+    SetEvent(g_queue_event);
+#endif
 #if PB_FEAT_METRICS
     SetWindowTextA(g_main, "PortBlaster - Stopping");
 #endif
@@ -1409,8 +1512,12 @@ void WinMainCRTStartup(void) {
     MSG msg;
     HINSTANCE inst = GetModuleHandleA(0);
 
-#if PB_FEAT_THREADS
+#if PB_FEAT_THREADS || PB_FEAT_WORKERS
     InitializeCriticalSection(&g_note_lock);
+#endif
+#if PB_FEAT_WORKERS
+    InitializeCriticalSection(&g_queue_lock);
+    g_queue_event = CreateEventA(0, FALSE, FALSE, 0);
 #endif
     zero_bytes(&wc, sizeof(wc));
     wc.lpfnWndProc = wnd_proc;

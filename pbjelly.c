@@ -541,6 +541,38 @@ static void probe_slow_parallel(void) {
     if (!ok) g_fail++;
 }
 
+static void probe_worker_saturation(void) {
+    SOCKET held[20];
+    DWORD i;
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok = 1;
+    for (i = 0; i < 20; i++) {
+        held[i] = connect_target_with_timeout(8000);
+        if (held[i] == INVALID_SOCKET) ok = 0;
+        Sleep(20);
+    }
+    Sleep(200);
+    make_req("GET", "/");
+    for (i = 0; i < 5; i++) {
+        code = request_raw(g_req, &ms, &bytes);
+        if (code) break;
+        Sleep(50);
+    }
+    for (i = 0; i < 20; i++) {
+        if (held[i] != INVALID_SOCKET) closesocket(held[i]);
+    }
+    ok = ok && code == 503 && ms < 3000;
+    out(ok ? "PASS worker_saturation -> " : "FAIL worker_saturation -> ");
+    print_u32((DWORD)code);
+    out(" ");
+    print_u32(ms);
+    out("ms\r\n");
+    report_row("worker_saturation", 503, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void load(const char *path, DWORD count) {
     DWORD i;
     DWORD total = 0;
@@ -715,6 +747,11 @@ int main(int argc, char **argv) {
     }
     if (threads_check) {
         probe_slow_parallel();
+        if (threads_check > 1 && !host_is_ipv6()) {
+            probe_worker_saturation();
+        } else if (threads_check > 1) {
+            out("SKIP worker_saturation ipv6\r\n");
+        }
     }
     load("/", 100);
 

@@ -41,7 +41,7 @@ The three release builds come from the same `portblaster.c` source with compile-
 
 - `pb20.exe` - safety-first minimum build.
 - `pb50.exe` - adds request log, uptime, bytes served, title state, Copy URL, and Browse root.
-- `pb100.exe` - adds chunked streaming, thread-per-connection serving, and tray behavior.
+- `pb100.exe` - adds chunked streaming, bounded worker-pool serving, and tray behavior.
 - `pb100.exe` also supports `portblaster.ini` beside the exe with `port=`, `root=`, `dir_list=1`, explicit `bind=all`, and explicit `ipv6=1` lines.
 
 Trial builds can mix features for byte-cost experiments:
@@ -84,7 +84,7 @@ Pass extra arguments to validate large-file, MIME, timeout, status endpoint, acc
 .\build\pbjelly\pbjelly.exe 127.0.0.1 8083 build\pbjelly\public\jelly-report.html 200 1 1 200 build\pbjelly\portblaster.log 1 200 206
 ```
 
-Add a final `1` after the bind-mode argument to validate that `pb100` keeps serving a normal request while another accepted client stays idle.
+Add a final `1` after the bind-mode argument to validate that concurrent `pb100` serving keeps a normal request moving while another accepted client stays idle. Use `2` for the standard worker-pool build to also validate queue saturation returns `503 Service Unavailable`.
 
 Add a final `0` or `1` argument to validate the listener bind mode through the Windows TCP table: `0` expects loopback-only, `1` expects all IPv4 interfaces. `bind=all` is `pb100`-only and must be set explicitly in `portblaster.ini`.
 
