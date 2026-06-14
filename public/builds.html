@@ -10,21 +10,48 @@
   <main>
     <nav><a href="/">home</a> <a href="/about.html">about</a> <a href="/how.html">how</a> <a href="/safety.html">safety</a></nav>
     <h1>Builds</h1>
-    <p>The project keeps three release targets and a separate validation folder:</p>
-    <ul>
-      <li><code>pb20.exe</code>: 20 KB target release build.</li>
-      <li><code>pb50.exe</code>: 50 KB target release build.</li>
-      <li><code>pb100.exe</code>: 100 KB target release build.</li>
-      <li><code>pbjelly\</code>: jelly validation builds and <code>pbjelly.exe</code>.</li>
-    </ul>
-    <p>All three release builds come from <code>portblaster.c</code> with compile-time feature flags.</p>
-    <ul>
-      <li><code>pb20</code>: minimal safe server.</li>
-      <li><code>pb50</code>: log, metrics, Copy URL, and Browse root.</li>
-      <li><code>pb100</code>: log, metrics, streaming file responses, bounded worker-pool serving, tray behavior, optional status/config/listing/range checks, explicit <code>bind=all</code> LAN testing, and explicit <code>ipv6=1</code> local serving.</li>
-    </ul>
-    <p>The jelly utility checks normal pages, rejected paths, malformed request lines, unsupported methods, listener bind mode, and repeated request latency. Launched without arguments, <code>pbjelly.exe</code> opens a GUI attack tester cockpit. Reports include a defense summary showing served, blocked, and unexpected probes.</p>
-    <p>The validation builds accept <code>--start</code> for automated local testing. The release builds stay manual and size-focused.</p>
+    <p>PortBlaster ships as three tiny Windows executables from the same C source. The names are ambition labels, not current size limits: even the rich build is about 24 KB.</p>
+
+    <table>
+      <caption>Current release sizes</caption>
+      <tr><th>Build</th><th>Target identity</th><th>Measured size</th><th>Delta vs pb20</th></tr>
+      <tr><td><code>pb20.exe</code></td><td>20 KB</td><td>11,264 B</td><td>0 B</td></tr>
+      <tr><td><code>pb50.exe</code></td><td>50 KB</td><td>13,824 B</td><td>+2,560 B</td></tr>
+      <tr><td><code>pb100.exe</code></td><td>100 KB</td><td>24,064 B</td><td>+12,800 B</td></tr>
+    </table>
+
+    <h2>Feature matrix</h2>
+    <table class="matrix">
+      <tr><th>Feature</th><th>pb20</th><th>pb50</th><th>pb100</th><th>Measured cost</th></tr>
+      <tr><td>Win32 start/stop GUI, port/root fields</td><td>yes</td><td>yes</td><td>yes</td><td>baseline</td></tr>
+      <tr><td>Loopback HTTP serving</td><td>yes</td><td>yes</td><td>yes</td><td>baseline</td></tr>
+      <tr><td>GET and HEAD</td><td>yes</td><td>yes</td><td>yes</td><td>baseline</td></tr>
+      <tr><td>Strict path/root containment</td><td>yes</td><td>yes</td><td>yes</td><td>baseline</td></tr>
+      <tr><td>Partial-send safe loop</td><td>yes</td><td>yes</td><td>yes</td><td>baseline</td></tr>
+      <tr><td>Scrolling request log</td><td>no</td><td>yes</td><td>yes</td><td>+512 B isolated, +1,024 B in pb50</td></tr>
+      <tr><td>Uptime and bytes served</td><td>no</td><td>yes</td><td>yes</td><td>+512 B isolated, +1,024 B in pb50</td></tr>
+      <tr><td>Expanded MIME types</td><td>no</td><td>yes</td><td>yes</td><td>+512 B</td></tr>
+      <tr><td>Copy URL button</td><td>no</td><td>yes</td><td>yes</td><td>+512 B isolated, +1,024 B in pb50/pb100</td></tr>
+      <tr><td>Browse root button</td><td>no</td><td>yes</td><td>yes</td><td>+512 B isolated, +1,024 B in pb50</td></tr>
+      <tr><td>Streaming large files</td><td>no</td><td>no</td><td>yes</td><td>+512 B isolated, +2,560 B with Range removed</td></tr>
+      <tr><td>HTTP Range requests</td><td>no</td><td>no</td><td>yes</td><td>+2,048 B with streaming</td></tr>
+      <tr><td>Socket receive/send timeout</td><td>no</td><td>no</td><td>yes</td><td>+512 B isolated, 0 B marginal</td></tr>
+      <tr><td>Status endpoint</td><td>no</td><td>no</td><td>yes</td><td>+1,024 B with metrics</td></tr>
+      <tr><td>Access log file</td><td>no</td><td>no</td><td>yes</td><td>+512 B</td></tr>
+      <tr><td>Config file</td><td>no</td><td>no</td><td>yes</td><td>+1,024 B</td></tr>
+      <tr><td>Directory listing, opt-in</td><td>no</td><td>no</td><td>yes</td><td>+1,024 B isolated, +1,536 B in pb100</td></tr>
+      <tr><td>IPv4 bind-all, opt-in</td><td>no</td><td>no</td><td>yes</td><td>0 B measured, safety gated</td></tr>
+      <tr><td>IPv6 loopback, opt-in</td><td>no</td><td>no</td><td>yes</td><td>+512 B</td></tr>
+      <tr><td>Tray minimize/menu</td><td>no</td><td>no</td><td>yes</td><td>+1,024 B isolated, +1,536 B in pb100</td></tr>
+      <tr><td>Bounded worker pool</td><td>no</td><td>no</td><td>yes</td><td>+512 B isolated, +1,024 B in pb100</td></tr>
+      <tr><td>Safety limits and defense counters</td><td>no</td><td>no</td><td>yes</td><td>+2,560 B measured in pb100</td></tr>
+    </table>
+
+    <h2>Validation tools</h2>
+    <p>The <code>pbjelly</code> folder contains validation builds <code>pbj20.exe</code>, <code>pbj50.exe</code>, <code>pbj100.exe</code>, plus <code>pbjelly.exe</code>. Jelly probes normal pages, rejected paths, malformed request lines, unsupported methods, bind mode, queue saturation, defense counters, and load latency with average, p50, p95, and max timing.</p>
+
+    <h2>Notes on size costs</h2>
+    <p>Windows PE output moves in coarse chunks, so costs are practical measurements rather than perfect source-code weights. Features can share imports and helpers, so isolated and marginal costs differ.</p>
   </main>
 </body>
 </html>

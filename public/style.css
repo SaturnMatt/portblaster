@@ -22,6 +22,12 @@ h1 {
   text-shadow: 3px 3px 0 #58d7c6;
 }
 
+h2 {
+  margin: 22px 0 8px;
+  font: 700 1.45rem Georgia, serif;
+  color: #111118;
+}
+
 p, li, a {
   line-height: 1.45;
 }
@@ -62,11 +68,32 @@ pre {
 table {
   width: 100%;
   border-collapse: collapse;
+  margin: 14px 0;
+  font-size: .92rem;
 }
 
 td, th {
   padding: 6px;
   border: 2px solid #111118;
+  text-align: left;
+  vertical-align: top;
+}
+
+caption {
+  text-align: left;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.matrix th:nth-child(n+2),
+.matrix td:nth-child(n+2) {
+  text-align: center;
+}
+
+.matrix th:first-child,
+.matrix td:first-child,
+.matrix th:last-child,
+.matrix td:last-child {
   text-align: left;
 }
 
