@@ -17,7 +17,7 @@
       <tr><th>Build</th><th>Target identity</th><th>Measured size</th><th>Delta vs pb20</th></tr>
       <tr><td><code>pb20.exe</code></td><td>20 KB</td><td>11,264 B</td><td>0 B</td></tr>
       <tr><td><code>pb50.exe</code></td><td>50 KB</td><td>13,824 B</td><td>+2,560 B</td></tr>
-      <tr><td><code>pb100.exe</code></td><td>100 KB</td><td>24,064 B</td><td>+12,800 B</td></tr>
+      <tr><td><code>pb100.exe</code></td><td>100 KB</td><td>24,576 B</td><td>+13,312 B</td></tr>
     </table>
 
     <h2>Feature matrix</h2>
@@ -43,6 +43,7 @@
       <tr><td>IPv4 bind-all, opt-in</td><td>no</td><td>no</td><td>yes</td><td>0 B measured, safety gated</td></tr>
       <tr><td>IPv6 loopback, opt-in</td><td>no</td><td>no</td><td>yes</td><td>+512 B</td></tr>
       <tr><td>Tray minimize/menu</td><td>no</td><td>no</td><td>yes</td><td>+1,024 B isolated, +1,536 B in pb100</td></tr>
+      <tr><td>Built-in icon, menu bar, grouped classic UI</td><td>no</td><td>no</td><td>yes</td><td>+512 B measured in pb100</td></tr>
       <tr><td>Bounded worker pool</td><td>no</td><td>no</td><td>yes</td><td>+512 B isolated, +1,024 B in pb100</td></tr>
       <tr><td>Safety limits and defense counters</td><td>no</td><td>no</td><td>yes</td><td>+2,560 B measured in pb100</td></tr>
     </table>

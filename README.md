@@ -8,6 +8,7 @@ Tiny Win32 GUI wrapper around the barebones C HTTP server.
 - Copy URL button in `pb50` and `pb100`.
 - Browse root button in `pb50` and `pb100`.
 - Tray minimize/menu behavior in `pb100`.
+- Built-in Windows icon, menu bar, grouped panels, and classic status styling in `pb100`.
 - Safety limits panel in `pb100` with timeout, worker, queue, active, rejected, and timeout counters.
 - Editable port.
 - Editable root directory.

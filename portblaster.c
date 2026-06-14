@@ -145,6 +145,14 @@
 #endif
 #endif
 
+#ifndef PB_FEAT_WIN2K_UI
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_WIN2K_UI 1
+#else
+#define PB_FEAT_WIN2K_UI 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -169,6 +177,8 @@
 #define ID_TRAY_COPY 202
 #define ID_TRAY_STOP 203
 #define ID_TRAY_EXIT 204
+#define ID_MENU_EXIT 301
+#define ID_MENU_ABOUT 302
 #define WM_TRAY (WM_APP + 20)
 
 #define REQ_MAX 1024
@@ -1483,6 +1493,32 @@ static void set_running_ui(int running) {
 #endif
 }
 
+#if PB_FEAT_WIN2K_UI
+static HMENU make_main_menu(void) {
+    HMENU menu = CreateMenu();
+    HMENU file = CreatePopupMenu();
+    HMENU server = CreatePopupMenu();
+    HMENU help = CreatePopupMenu();
+    if (!menu || !file || !server || !help) return menu;
+    AppendMenuA(file, MF_STRING, ID_MENU_EXIT, "Exit");
+    AppendMenuA(server, MF_STRING, ID_START, "Start");
+    AppendMenuA(server, MF_STRING, ID_STOP, "Stop");
+#if PB_FEAT_COPY_URL
+    AppendMenuA(server, MF_SEPARATOR, 0, 0);
+    AppendMenuA(server, MF_STRING, ID_COPY_URL, "Copy URL");
+#endif
+    AppendMenuA(help, MF_STRING, ID_MENU_ABOUT, "About PortBlaster");
+    AppendMenuA(menu, MF_POPUP, (UINT_PTR)file, "File");
+    AppendMenuA(menu, MF_POPUP, (UINT_PTR)server, "Server");
+    AppendMenuA(menu, MF_POPUP, (UINT_PTR)help, "Help");
+    return menu;
+}
+
+static void about_box(void) {
+    MessageBoxA(g_main, "PortBlaster pb100\r\nTiny Windows HTTP server\r\nSafety, size, function.", "About PortBlaster", MB_OK | MB_ICONINFORMATION);
+}
+#endif
+
 #if PB_FEAT_TRAY
 static void tray_remove(void) {
     if (g_tray_added) {
@@ -1541,6 +1577,10 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #if PB_FEAT_CONFIG
         load_config();
 #endif
+#if PB_FEAT_WIN2K_UI
+        SetMenu(hwnd, make_main_menu());
+        CreateWindowA("BUTTON", "Server", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 6, 2, 442, 118, hwnd, 0, 0, 0);
+#endif
         wsprintfA(port_text, "%u", (unsigned int)g_port);
         CreateWindowA("STATIC", "Port", WS_CHILD | WS_VISIBLE, 12, 14, 60, 22, hwnd, 0, 0, 0);
         g_port_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", port_text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 82, 12, 80, 24, hwnd, (HMENU)ID_PORT, 0, 0);
@@ -1559,7 +1599,12 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #if PB_FEAT_COPY_URL
         g_copy_button = CreateWindowA("BUTTON", "Copy URL", WS_CHILD | WS_VISIBLE, 282, 84, 90, 28, hwnd, (HMENU)ID_COPY_URL, 0, 0);
 #endif
+#if PB_FEAT_WIN2K_UI
+        CreateWindowA("BUTTON", "Activity", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 6, 118, 442, 116, hwnd, 0, 0, 0);
+        g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE | SS_SUNKEN, 12, 136, 430, 22, hwnd, (HMENU)ID_STATUS, 0, 0);
+#else
         g_status = CreateWindowA("STATIC", "Stopped.", WS_CHILD | WS_VISIBLE, 12, 126, 430, 24, hwnd, (HMENU)ID_STATUS, 0, 0);
+#endif
 #if PB_FEAT_LOG
         g_activity = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 152, 430, 78, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
 #else
@@ -1584,6 +1629,13 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == ID_START) start_server();
         if (LOWORD(wp) == ID_STOP) stop_server();
+#if PB_FEAT_WIN2K_UI
+        if (LOWORD(wp) == ID_MENU_ABOUT) about_box();
+        if (LOWORD(wp) == ID_MENU_EXIT) {
+            stop_server();
+            DestroyWindow(hwnd);
+        }
+#endif
 #if PB_FEAT_TRAY
         if (LOWORD(wp) == ID_TRAY_RESTORE) restore_window(hwnd);
         if (LOWORD(wp) == ID_TRAY_STOP) stop_server();
@@ -1693,11 +1745,21 @@ void WinMainCRTStartup(void) {
     wc.hInstance = inst;
     wc.lpszClassName = "portblaster_window";
     wc.hCursor = LoadCursorA(0, (LPCSTR)32512);
+#if PB_FEAT_WIN2K_UI
+    wc.hIcon = LoadIconA(0, (LPCSTR)32516);
+#else
+    wc.hIcon = LoadIconA(0, (LPCSTR)32512);
+#endif
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     RegisterClassA(&wc);
 
     hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster - Stopped", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 470, PB_FEAT_DEFENSE ? 380 : (PB_FEAT_LOG ? 285 : 235), 0, 0, inst, 0);
+        CW_USEDEFAULT, CW_USEDEFAULT, 470, PB_FEAT_DEFENSE ? 400 : (PB_FEAT_LOG ? 285 : 235), 0, 0, inst, 0);
+
+#if PB_FEAT_WIN2K_UI
+    SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)LoadIconA(0, (LPCSTR)32516));
+    SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)LoadIconA(0, (LPCSTR)32516));
+#endif
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);

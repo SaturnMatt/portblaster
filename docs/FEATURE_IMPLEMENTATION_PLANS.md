@@ -571,3 +571,29 @@ Acceptance:
 - HTML reports include richer load metrics.
 - CLI output includes defense snapshots after worker saturation.
 - Existing safety/load validation remains green.
+
+## 24. Classic Windows UI Polish
+
+Status: Complete
+
+Build fit: `pb100`
+
+Goal:
+- Move `pb100` visually closer to a Windows 98/2000 utility without adding asset files.
+
+Implementation goals:
+- Use a built-in Windows icon for the app window.
+- Add a small classic menu bar with File, Server, and Help menus.
+- Add an About box.
+- Frame server/activity areas with group boxes and use a sunken status line.
+- Feature gate as `PB_FEAT_WIN2K_UI`.
+
+Safety notes:
+- Do not change serving behavior.
+- Do not add external icon or bitmap assets.
+- Keep `pb20` and `pb50` visually simpler.
+
+Acceptance:
+- `pb100` builds with the classic UI polish.
+- `pbjelly` validation still passes.
+- Size increase stays within a few KB.

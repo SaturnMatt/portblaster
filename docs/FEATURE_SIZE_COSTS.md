@@ -10,11 +10,13 @@ These numbers are best treated as practical linker-output measurements, not pure
 | --- | ---: | ---: |
 | `pb20.exe` | 11,264 B | 0 B |
 | `pb50.exe` | 13,824 B | +2,560 B |
-| `pb100.exe` | 24,064 B | +12,800 B |
+| `pb100.exe` | 24,576 B | +13,312 B |
 
-Result: the differentiated builds came out much smaller than their target identities. `pb100.exe` is only about 24 KB while carrying streaming, ranges, worker-pool concurrency, configurable safety limits, defense counters, status endpoint, config, tray behavior, access logging, optional bind-all, and optional IPv6.
+Result: the differentiated builds came out much smaller than their target identities. `pb100.exe` is only about 24.5 KB while carrying streaming, ranges, worker-pool concurrency, configurable safety limits, defense counters, status endpoint, config, tray behavior, classic Windows 2000-style UI polish, access logging, optional bind-all, and optional IPv6.
 
 The configurable safety limits and defense status iteration increased `pb100.exe` from 21,504 B to 24,064 B, a measured delta of +2,560 B.
+
+The classic Windows UI polish iteration increased `pb100.exe` from 24,064 B to 24,576 B, a measured delta of +512 B.
 
 ## Isolated minimum feature costs
 
