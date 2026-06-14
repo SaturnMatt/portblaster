@@ -521,3 +521,53 @@ Revisit only if:
 Acceptance:
 - Standard builds continue to close each connection.
 - `pbjelly` verifies that a `Connection: keep-alive` request still receives `Connection: close`.
+
+## 22. Configurable Safety Limits and Defense Status
+
+Status: Complete
+
+Build fit: `pb100`
+
+Goal:
+- Make the safety posture visible and tunable without changing `pb20` or `pb50`.
+
+Implementation goals:
+- Add an old-style Win32 safety group with timeout, worker count, queue limit, and live defense counters.
+- Allow `timeout_ms=`, `workers=`, and `queue=` in `portblaster.ini`.
+- Validate limits before startup and fail closed on invalid values.
+- Extend `/__pb/status` with active worker, queue, rejected, timeout, and configured-limit fields.
+- Feature gate as `PB_FEAT_DEFENSE`.
+
+Safety notes:
+- Keep bounded workers as the standard concurrency model.
+- Keep all-interface bind opt-in and unrelated to safety-limit controls.
+- Do not make rejected overload requests silently disappear; record them and return `503`.
+
+Acceptance:
+- `pb100` shows safety controls and counters in the main window.
+- `pbjelly` validates defense fields in `/__pb/status`.
+- Queue saturation increments rejected counters and returns `503`.
+
+## 23. Better pbjelly Performance / Attack Cockpit
+
+Status: Complete
+
+Build fit: `pbjelly`
+
+Goal:
+- Make local attack/performance evidence clearer and more useful for future build decisions.
+
+Implementation goals:
+- Keep CLI automation and GUI cockpit mode.
+- Report p50 and p95 latency in addition to average and max latency.
+- Validate `pb100` defense status fields.
+- Capture a post-overload defense snapshot showing active workers, queue, rejected clients, and timeouts.
+
+Safety notes:
+- Keep attack traffic local by default.
+- Do not make external targets easier to attack accidentally.
+
+Acceptance:
+- HTML reports include richer load metrics.
+- CLI output includes defense snapshots after worker saturation.
+- Existing safety/load validation remains green.

@@ -8,6 +8,7 @@ Tiny Win32 GUI wrapper around the barebones C HTTP server.
 - Copy URL button in `pb50` and `pb100`.
 - Browse root button in `pb50` and `pb100`.
 - Tray minimize/menu behavior in `pb100`.
+- Safety limits panel in `pb100` with timeout, worker, queue, active, rejected, and timeout counters.
 - Editable port.
 - Editable root directory.
 - Auto-filled root directory relative to the exe.
@@ -41,8 +42,8 @@ The three release builds come from the same `portblaster.c` source with compile-
 
 - `pb20.exe` - safety-first minimum build.
 - `pb50.exe` - adds request log, uptime, bytes served, title state, Copy URL, and Browse root.
-- `pb100.exe` - adds chunked streaming, bounded worker-pool serving, and tray behavior.
-- `pb100.exe` also supports `portblaster.ini` beside the exe with `port=`, `root=`, `dir_list=1`, explicit `bind=all`, and explicit `ipv6=1` lines.
+- `pb100.exe` - adds chunked streaming, bounded worker-pool serving, configurable safety limits, defense counters, and tray behavior.
+- `pb100.exe` also supports `portblaster.ini` beside the exe with `port=`, `root=`, `timeout_ms=`, `workers=`, `queue=`, `dir_list=1`, explicit `bind=all`, and explicit `ipv6=1` lines.
 
 Trial builds can mix features for byte-cost experiments:
 
@@ -75,7 +76,7 @@ Start PortBlaster, then run:
 
 Launching `pbjelly.exe` without arguments opens the Win32 attack tester GUI. It can start `pbj20`, `pbj50`, or `pbj100`, run the current suite, stream results, and open `jelly-report.html`.
 
-`pbjelly` sends normal requests, method/path attacks, malformed-path checks, and a small load run with latency totals. Its CLI and HTML report label HTTP probes as served, blocked, or unexpected so defense behavior is visible while testing.
+`pbjelly` sends normal requests, method/path attacks, malformed-path checks, slow-client probes, queue-saturation probes, and a small load run with average, p50, p95, and max latency. Its CLI and HTML report label HTTP probes as served, blocked, or unexpected and include defense snapshots from `pb100`.
 Add a third argument to write an HTML report that PortBlaster can serve:
 
 ```powershell

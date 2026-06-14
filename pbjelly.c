@@ -50,6 +50,24 @@ static int has_text(const char *s, const char *needle) {
     return 0;
 }
 
+static DWORD value_after(const char *s, const char *key) {
+    const char *p;
+    while (*s) {
+        p = key;
+        while (*p && s[p - key] == *p) p++;
+        if (!*p) {
+            DWORD v = 0;
+            s += lstrlenA(key);
+            while (*s >= '0' && *s <= '9') {
+                v = v * 10 + (DWORD)(*s++ - '0');
+            }
+            return v;
+        }
+        s++;
+    }
+    return 0;
+}
+
 static unsigned short parse_port(const char *s) {
     DWORD v = 0;
     while (*s >= '0' && *s <= '9') {
@@ -193,7 +211,7 @@ static void report_row(const char *name, DWORD expect, DWORD got, DWORD ms, DWOR
     report("</td></tr>");
 }
 
-static void report_load(DWORD count, DWORD ok, DWORD avg, DWORD max, DWORD bytes) {
+static void report_load(DWORD count, DWORD ok, DWORD avg, DWORD p50, DWORD p95, DWORD max, DWORD bytes) {
     if (g_report == INVALID_HANDLE_VALUE) return;
     report("</table><h2>Load</h2><p>Requests: ");
     report_u32(count);
@@ -201,6 +219,10 @@ static void report_load(DWORD count, DWORD ok, DWORD avg, DWORD max, DWORD bytes
     report_u32(ok);
     report(" | Avg: ");
     report_u32(avg);
+    report(" ms | P50: ");
+    report_u32(p50);
+    report(" ms | P95: ");
+    report_u32(p95);
     report(" ms | Max: ");
     report_u32(max);
     report(" ms | Bytes: ");
@@ -413,6 +435,10 @@ static void probe_status_endpoint(int expect) {
     if (expect == 200) {
         ok = ok && has_text(g_recv, "target=100") && has_text(g_recv, "requests=") &&
             has_text(g_recv, "features=") && has_text(g_recv, "STATUS_ENDPOINT") &&
+            has_text(g_recv, "DEFENSE") && has_text(g_recv, "workers=") &&
+            has_text(g_recv, "queue_limit=") && has_text(g_recv, "active=") &&
+            has_text(g_recv, "rejected=") && has_text(g_recv, "timeouts=") &&
+            has_text(g_recv, "timeout_ms=") &&
             !has_text(g_recv, "TLS") && !has_text(g_recv, "SCHANNEL");
     }
     out(ok ? "PASS status_endpoint -> " : "FAIL status_endpoint -> ");
@@ -606,6 +632,35 @@ static void probe_worker_saturation(void) {
     if (!ok) g_fail++;
 }
 
+static void probe_defense_snapshot(int require_rejected) {
+    DWORD ms = 0;
+    DWORD bytes = 0;
+    int code;
+    int ok;
+    Sleep(300);
+    make_req("GET", "/__pb/status");
+    code = request_raw(g_req, &ms, &bytes);
+    ok = code == 200 && has_text(g_recv, "DEFENSE") && has_text(g_recv, "workers=") &&
+        has_text(g_recv, "queue_limit=") && has_text(g_recv, "active=") &&
+        has_text(g_recv, "rejected=") && has_text(g_recv, "timeouts=") &&
+        has_text(g_recv, "timeout_ms=");
+    if (require_rejected) ok = ok && value_after(g_recv, "rejected=") > 0;
+    out(ok ? "PASS defense_snapshot -> " : "FAIL defense_snapshot -> ");
+    out("active=");
+    print_u32(value_after(g_recv, "active="));
+    out(" queue=");
+    print_u32(value_after(g_recv, "queue="));
+    out("/");
+    print_u32(value_after(g_recv, "queue_limit="));
+    out(" rejected=");
+    print_u32(value_after(g_recv, "rejected="));
+    out(" timeouts=");
+    print_u32(value_after(g_recv, "timeouts="));
+    out("\r\n");
+    report_row("defense_snapshot", 200, (DWORD)code, ms, bytes);
+    if (!ok) g_fail++;
+}
+
 static void load(const char *path, DWORD count) {
     DWORD i;
     DWORD total = 0;
@@ -614,14 +669,33 @@ static void load(const char *path, DWORD count) {
     DWORD bytes = 0;
     DWORD got;
     DWORD ms;
+    DWORD times[128];
+    DWORD p50 = 0;
+    DWORD p95 = 0;
     int code;
     make_req("GET", path);
     for (i = 0; i < count; i++) {
         code = request_raw(g_req, &ms, &got);
+        if (i < 128) times[i] = ms;
         total += ms;
         if (ms > max) max = ms;
         bytes += got;
         if (code == 200) ok++;
+    }
+    if (count && count <= 128) {
+        DWORD a;
+        DWORD b;
+        for (a = 0; a < count; a++) {
+            for (b = a + 1; b < count; b++) {
+                if (times[b] < times[a]) {
+                    DWORD t = times[a];
+                    times[a] = times[b];
+                    times[b] = t;
+                }
+            }
+        }
+        p50 = times[count / 2];
+        p95 = times[(count * 95) / 100 >= count ? count - 1 : (count * 95) / 100];
     }
     out("LOAD requests=");
     print_u32(count);
@@ -629,12 +703,16 @@ static void load(const char *path, DWORD count) {
     print_u32(ok);
     out(" avg_ms=");
     print_u32(count ? total / count : 0);
+    out(" p50_ms=");
+    print_u32(p50);
+    out(" p95_ms=");
+    print_u32(p95);
     out(" max_ms=");
     print_u32(max);
     out(" bytes=");
     print_u32(bytes);
     out("\r\n");
-    report_load(count, ok, count ? total / count : 0, max, bytes);
+    report_load(count, ok, count ? total / count : 0, p50, p95, max, bytes);
     if (ok != count) g_fail++;
 }
 
@@ -962,8 +1040,10 @@ int main(int argc, char **argv) {
         probe_slow_parallel();
         if (threads_check > 1 && !host_is_ipv6()) {
             probe_worker_saturation();
+            probe_defense_snapshot(1);
         } else if (threads_check > 1) {
             out("SKIP worker_saturation ipv6\r\n");
+            probe_defense_snapshot(0);
         }
     }
     load("/", 100);

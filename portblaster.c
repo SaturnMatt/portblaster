@@ -137,6 +137,14 @@
 #define PB_FEAT_WORKERS 0
 #endif
 
+#ifndef PB_FEAT_DEFENSE
+#if PB_TARGET_KB >= 100
+#define PB_FEAT_DEFENSE 1
+#else
+#define PB_FEAT_DEFENSE 0
+#endif
+#endif
+
 #ifndef PB_FEAT_JELLY
 #ifdef PORTBLASTER_CHECK
 #define PB_FEAT_JELLY 1
@@ -153,6 +161,10 @@
 #define ID_ACTIVITY 106
 #define ID_COPY_URL 107
 #define ID_BROWSE 108
+#define ID_TIMEOUT 109
+#define ID_WORKERS 110
+#define ID_QUEUE 111
+#define ID_DEFENSE 112
 #define ID_TRAY_RESTORE 201
 #define ID_TRAY_COPY 202
 #define ID_TRAY_STOP 203
@@ -165,7 +177,7 @@
 #define HEADER_MAX 512
 #define FILE_MAX (1024 * 1024)
 #define STREAM_CHUNK 8192
-#define PB_WORKER_COUNT 4
+#define PB_WORKER_MAX 8
 #define PB_QUEUE_MAX 16
 
 static HWND g_port_edit;
@@ -181,6 +193,12 @@ static HWND g_copy_button;
 static HWND g_status;
 static HWND g_activity;
 static HWND g_main;
+#if PB_FEAT_DEFENSE
+static HWND g_timeout_edit;
+static HWND g_workers_edit;
+static HWND g_queue_edit;
+static HWND g_defense_status;
+#endif
 #if PB_FEAT_TRAY
 static NOTIFYICONDATAA g_tray;
 static int g_tray_added = 0;
@@ -202,6 +220,14 @@ static int g_queue_count = 0;
 static volatile LONG g_running = 0;
 static volatile LONG g_request_count = 0;
 static volatile LONG g_last_status = 0;
+#if PB_FEAT_DEFENSE
+static volatile LONG g_active_workers = 0;
+static volatile LONG g_rejected_clients = 0;
+static volatile LONG g_timeout_clients = 0;
+static int g_timeout_ms = 5000;
+static int g_worker_count = 4;
+static int g_queue_limit = 16;
+#endif
 #if PB_FEAT_METRICS
 static volatile LONG g_bytes_served = 0;
 #endif
@@ -311,6 +337,29 @@ static void load_config(void) {
             }
         } else if (starts_with(p, "root=")) {
             copy_line_value(g_root, sizeof(g_root), p + 5);
+#if PB_FEAT_DEFENSE
+        } else if (starts_with(p, "timeout_ms=")) {
+            char tmp[16];
+            unsigned short v;
+            copy_line_value(tmp, sizeof(tmp), p + 11);
+            v = parse_port(tmp);
+            if (v >= 1000 && v <= 30000) g_timeout_ms = v;
+            else g_config_error = 1;
+        } else if (starts_with(p, "workers=")) {
+            char tmp[16];
+            unsigned short v;
+            copy_line_value(tmp, sizeof(tmp), p + 8);
+            v = parse_port(tmp);
+            if (v >= 1 && v <= PB_WORKER_MAX) g_worker_count = v;
+            else g_config_error = 1;
+        } else if (starts_with(p, "queue=")) {
+            char tmp[16];
+            unsigned short v;
+            copy_line_value(tmp, sizeof(tmp), p + 6);
+            v = parse_port(tmp);
+            if (v >= 1 && v <= PB_QUEUE_MAX) g_queue_limit = v;
+            else g_config_error = 1;
+#endif
 #if PB_FEAT_DIR_LIST
         } else if (starts_with(p, "dir_list=1")) {
             g_dir_list = 1;
@@ -392,6 +441,19 @@ static void refresh_activity(void) {
     } else {
         wsprintfA(g_activity_text, "Requests: %ld | Last: %ld %s", count, status, g_last_path);
         SetWindowTextA(g_activity, g_activity_text);
+    }
+#endif
+#if PB_FEAT_DEFENSE
+    if (g_defense_status) {
+        int q = 0;
+#if PB_FEAT_WORKERS
+        EnterCriticalSection(&g_queue_lock);
+        q = g_queue_count;
+        LeaveCriticalSection(&g_queue_lock);
+#endif
+        wsprintfA(g_activity_text, "Active %ld | Queue %d/%d | Rejected %ld | Timeouts %ld",
+            g_active_workers, q, g_queue_limit, g_rejected_clients, g_timeout_clients);
+        SetWindowTextA(g_defense_status, g_activity_text);
     }
 #endif
 }
@@ -708,7 +770,11 @@ static void send_all(SOCKET client, const char *data, DWORD len) {
 
 #if PB_FEAT_TIMEOUT
 static void set_client_timeout(SOCKET client) {
+#if PB_FEAT_DEFENSE
+    DWORD timeout = (DWORD)g_timeout_ms;
+#else
     DWORD timeout = 5000;
+#endif
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
 }
@@ -853,6 +919,27 @@ static void send_status_endpoint(PB_CLIENT *ctx, int head_only) {
 #if PB_FEAT_WORKERS
     append(ctx->status_body, &p, ",WORKERS");
 #endif
+#if PB_FEAT_DEFENSE
+    append(ctx->status_body, &p, ",DEFENSE");
+    append(ctx->status_body, &p, "\nworkers=");
+    append_u32(ctx->status_body, &p, (DWORD)g_worker_count);
+    append(ctx->status_body, &p, "\nqueue=");
+#if PB_FEAT_WORKERS
+    append_u32(ctx->status_body, &p, (DWORD)g_queue_count);
+#else
+    append_u32(ctx->status_body, &p, 0);
+#endif
+    append(ctx->status_body, &p, "\nqueue_limit=");
+    append_u32(ctx->status_body, &p, (DWORD)g_queue_limit);
+    append(ctx->status_body, &p, "\nactive=");
+    append_u32(ctx->status_body, &p, (DWORD)g_active_workers);
+    append(ctx->status_body, &p, "\nrejected=");
+    append_u32(ctx->status_body, &p, (DWORD)g_rejected_clients);
+    append(ctx->status_body, &p, "\ntimeouts=");
+    append_u32(ctx->status_body, &p, (DWORD)g_timeout_clients);
+    append(ctx->status_body, &p, "\ntimeout_ms=");
+    append_u32(ctx->status_body, &p, (DWORD)g_timeout_ms);
+#endif
     append(ctx->status_body, &p, "\n");
     send_response(ctx, 200, "OK", "text/plain; charset=utf-8", (const unsigned char *)ctx->status_body, (DWORD)p, head_only);
     note_request(200, head_only ? 0 : (DWORD)p, ctx->last_path);
@@ -894,6 +981,12 @@ static void handle_client(PB_CLIENT *ctx) {
 #endif
 
     if (n <= 0) {
+#if PB_FEAT_DEFENSE
+        if (WSAGetLastError() == WSAETIMEDOUT) {
+            InterlockedIncrement((LONG *)&g_timeout_clients);
+            PostMessageA(g_main, WM_APP + 4, 0, 0);
+        }
+#endif
         closesocket(client);
         return;
     }
@@ -1051,14 +1144,22 @@ static DWORD WINAPI client_thread(LPVOID param) {
 #if PB_FEAT_WORKERS
 static void send_busy(SOCKET client) {
     static const char msg[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+#if PB_FEAT_DEFENSE
+    InterlockedIncrement((LONG *)&g_rejected_clients);
+#endif
     send_all(client, msg, sizeof(msg) - 1);
     closesocket(client);
+    PostMessageA(g_main, WM_APP + 4, 0, 0);
 }
 
 static int enqueue_client(SOCKET client) {
     int ok = 0;
     EnterCriticalSection(&g_queue_lock);
+#if PB_FEAT_DEFENSE
+    if (g_queue_count < g_queue_limit) {
+#else
     if (g_queue_count < PB_QUEUE_MAX) {
+#endif
         g_queue[g_queue_tail] = client;
         g_queue_tail = (g_queue_tail + 1) % PB_QUEUE_MAX;
         g_queue_count++;
@@ -1091,9 +1192,16 @@ static DWORD WINAPI worker_thread(LPVOID unused) {
             WaitForSingleObject(g_queue_event, 1000);
             continue;
         }
+#if PB_FEAT_DEFENSE
+        InterlockedIncrement((LONG *)&g_active_workers);
+        PostMessageA(g_main, WM_APP + 4, 0, 0);
+#endif
         ctx = (PB_CLIENT *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PB_CLIENT));
         if (!ctx) {
             closesocket(client);
+#if PB_FEAT_DEFENSE
+            InterlockedDecrement((LONG *)&g_active_workers);
+#endif
             continue;
         }
         ctx->client = client;
@@ -1102,13 +1210,21 @@ static DWORD WINAPI worker_thread(LPVOID unused) {
 #endif
         handle_client(ctx);
         HeapFree(GetProcessHeap(), 0, ctx);
+#if PB_FEAT_DEFENSE
+        InterlockedDecrement((LONG *)&g_active_workers);
+        PostMessageA(g_main, WM_APP + 4, 0, 0);
+#endif
     }
     return 0;
 }
 
 static void start_workers(void) {
     int i;
-    for (i = 0; i < PB_WORKER_COUNT; i++) {
+#if PB_FEAT_DEFENSE
+    for (i = 0; i < g_worker_count; i++) {
+#else
+    for (i = 0; i < 4; i++) {
+#endif
         HANDLE h = CreateThread(0, 0, worker_thread, 0, 0, 0);
         if (h) CloseHandle(h);
     }
@@ -1234,6 +1350,10 @@ static DWORD WINAPI server_thread(LPVOID unused) {
 static void start_server(void) {
     char port_text[16];
     unsigned short port;
+#if PB_FEAT_DEFENSE
+    char limit_text[16];
+    unsigned short limit;
+#endif
 
     if (g_running) return;
 
@@ -1251,8 +1371,36 @@ static void start_server(void) {
         return;
     }
     g_port = port;
+#if PB_FEAT_DEFENSE
+    GetWindowTextA(g_timeout_edit, limit_text, sizeof(limit_text));
+    limit = parse_port(limit_text);
+    if (limit < 1000 || limit > 30000) {
+        set_status("Timeout must be 1000-30000 ms.");
+        return;
+    }
+    g_timeout_ms = limit;
+    GetWindowTextA(g_workers_edit, limit_text, sizeof(limit_text));
+    limit = parse_port(limit_text);
+    if (limit < 1 || limit > PB_WORKER_MAX) {
+        set_status("Workers must be 1-8.");
+        return;
+    }
+    g_worker_count = limit;
+    GetWindowTextA(g_queue_edit, limit_text, sizeof(limit_text));
+    limit = parse_port(limit_text);
+    if (limit < 1 || limit > PB_QUEUE_MAX) {
+        set_status("Queue must be 1-16.");
+        return;
+    }
+    g_queue_limit = limit;
+#endif
     InterlockedExchange((LONG *)&g_request_count, 0);
     InterlockedExchange((LONG *)&g_last_status, 0);
+#if PB_FEAT_DEFENSE
+    InterlockedExchange((LONG *)&g_active_workers, 0);
+    InterlockedExchange((LONG *)&g_rejected_clients, 0);
+    InterlockedExchange((LONG *)&g_timeout_clients, 0);
+#endif
 #if PB_FEAT_METRICS
     InterlockedExchange((LONG *)&g_bytes_served, 0);
 #endif
@@ -1328,6 +1476,11 @@ static void set_running_ui(int running) {
 #if PB_FEAT_BROWSE
     EnableWindow(g_browse_button, !running);
 #endif
+#if PB_FEAT_DEFENSE
+    EnableWindow(g_timeout_edit, !running);
+    EnableWindow(g_workers_edit, !running);
+    EnableWindow(g_queue_edit, !running);
+#endif
 }
 
 #if PB_FEAT_TRAY
@@ -1380,6 +1533,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CREATE:
     {
         char port_text[16];
+#if PB_FEAT_DEFENSE
+        char safety_text[16];
+#endif
         g_main = hwnd;
         set_default_root();
 #if PB_FEAT_CONFIG
@@ -1408,6 +1564,19 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         g_activity = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 12, 152, 430, 78, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
 #else
         g_activity = CreateWindowA("STATIC", "Requests: 0 | Last: none", WS_CHILD | WS_VISIBLE, 12, 152, 430, 24, hwnd, (HMENU)ID_ACTIVITY, 0, 0);
+#endif
+#if PB_FEAT_DEFENSE
+        CreateWindowA("BUTTON", "Safety limits", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 12, 238, 430, 92, hwnd, 0, 0, 0);
+        CreateWindowA("STATIC", "Timeout ms", WS_CHILD | WS_VISIBLE, 24, 260, 72, 20, hwnd, 0, 0, 0);
+        wsprintfA(safety_text, "%d", g_timeout_ms);
+        g_timeout_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", safety_text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 96, 258, 58, 22, hwnd, (HMENU)ID_TIMEOUT, 0, 0);
+        CreateWindowA("STATIC", "Workers", WS_CHILD | WS_VISIBLE, 168, 260, 52, 20, hwnd, 0, 0, 0);
+        wsprintfA(safety_text, "%d", g_worker_count);
+        g_workers_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", safety_text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 220, 258, 38, 22, hwnd, (HMENU)ID_WORKERS, 0, 0);
+        CreateWindowA("STATIC", "Queue", WS_CHILD | WS_VISIBLE, 274, 260, 42, 20, hwnd, 0, 0, 0);
+        wsprintfA(safety_text, "%d", g_queue_limit);
+        g_queue_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", safety_text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 316, 258, 38, 22, hwnd, (HMENU)ID_QUEUE, 0, 0);
+        g_defense_status = CreateWindowA("STATIC", "Active 0 | Queue 0/16 | Rejected 0 | Timeouts 0", WS_CHILD | WS_VISIBLE, 24, 294, 400, 22, hwnd, (HMENU)ID_DEFENSE, 0, 0);
 #endif
         set_running_ui(0);
         return 0;
@@ -1528,7 +1697,7 @@ void WinMainCRTStartup(void) {
     RegisterClassA(&wc);
 
     hwnd = CreateWindowExA(0, "portblaster_window", "PortBlaster - Stopped", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 470, PB_FEAT_LOG ? 285 : 235, 0, 0, inst, 0);
+        CW_USEDEFAULT, CW_USEDEFAULT, 470, PB_FEAT_DEFENSE ? 380 : (PB_FEAT_LOG ? 285 : 235), 0, 0, inst, 0);
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
